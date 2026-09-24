@@ -66,7 +66,7 @@ def code_only(ref: str, out_dir: str) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--code-only", action="store_true", help="just the code zip for a leaderboard upload")
-    ap.add_argument("--ref", default="HEAD", help="git ref for --code-only (use the sub-NN tag)")
+    ap.add_argument("--ref", default="HEAD", help="git ref the code is taken from (use the sub-NN tag)")
     ap.add_argument("--team", help="team name used in <team>_submission.zip (full package)")
     ap.add_argument("--outputs", default="output", help="folder with matching_results.tsv + candidate_pairs.tsv")
     ap.add_argument("--doc", help="filled-in Documentation_template.md (or .pdf); full package only")
@@ -80,7 +80,7 @@ def main() -> int:
     if not a.team or not a.doc:
         ap.error("--team and --doc are required for the full package (or use --code-only)")
 
-    if git("status", "--porcelain", "--untracked-files=no") and not a.allow_dirty:
+    if a.ref == "HEAD" and git("status", "--porcelain", "--untracked-files=no") and not a.allow_dirty:
         print("ERROR: uncommitted changes. Commit first (the zip must be reproducible from a commit).")
         return 1
     outputs = Path(a.outputs)
@@ -91,31 +91,39 @@ def main() -> int:
     print(rep)
     if not rep.ok:
         return 1
-    for p in (Path(a.doc), Path(a.readme)):
-        if not p.exists():
-            print(f"ERROR: missing {p}")
-            return 1
-
-    files = [f for f in git("ls-files").splitlines()
-             if f.startswith(CODE_DIRS) or f in CODE_FILES]
-    big = [f for f in files if (ROOT / f).stat().st_size > MAX_FILE_MB * 2**20]
-    if big or any(Path(f).name == ".env" for f in files):
-        print(f"ERROR: refusing to zip secrets/large files: {big}")
+    if not Path(a.doc).exists():
+        print(f"ERROR: missing {a.doc}")
         return 1
 
-    sha = git("rev-parse", "--short", "HEAD")
+    # code (and its README) come from the git ref, so the zip matches the tagged submission exactly
+    tracked = git("ls-tree", "-r", "--name-only", a.ref).splitlines()
+    files = [f for f in tracked if f.startswith(CODE_DIRS) or f in CODE_FILES]
+    if any(Path(f).name == ".env" for f in files):
+        print("ERROR: .env is tracked at this ref")
+        return 1
+    blobs = {f: git_bytes(a.ref, f) for f in files}
+    big = [f for f, b in blobs.items() if len(b) > MAX_FILE_MB * 2**20]
+    if big:
+        print(f"ERROR: refusing to zip large files: {big}")
+        return 1
+    if a.readme not in tracked:
+        print(f"ERROR: {a.readme} not committed at {a.ref}")
+        return 1
+
+    sha = git("rev-parse", "--short", f"{a.ref}^{{commit}}")
     out = ROOT / a.out_dir / f"{a.team}_submission.zip"
     out.parent.mkdir(parents=True, exist_ok=True)
     doc_name = "Documentation_template" + Path(a.doc).suffix
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         z.write(match, "output/matching_results.tsv")
         z.write(cand, "output/candidate_pairs.tsv")
-        for f in files:
-            z.write(ROOT / f, f"{CODE_PREFIX}/{f}")
-        z.write(a.readme, f"{CODE_PREFIX}/README.md")
+        for f, b in blobs.items():
+            z.writestr(f"{CODE_PREFIX}/{f}", b)
+        z.writestr(f"{CODE_PREFIX}/README.md", git_bytes(a.ref, a.readme))
         z.write(a.doc, doc_name)
-        z.writestr(f"{CODE_PREFIX}/BUILD_INFO.txt",
-                   f"commit: {git('rev-parse', 'HEAD')}\nbuilt: {datetime.now(timezone.utc).isoformat()}\n")
+        info = [f"ref: {a.ref}", f"commit: {git('rev-parse', f'{a.ref}^{{commit}}')}",
+                f"built: {datetime.now(timezone.utc).isoformat()}"]
+        z.writestr(f"{CODE_PREFIX}/BUILD_INFO.txt", "\n".join(info) + "\n")
     with zipfile.ZipFile(out) as z:
         names = z.namelist()
     required = ["output/matching_results.tsv", "output/candidate_pairs.tsv", f"{CODE_PREFIX}/README.md",
