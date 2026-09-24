@@ -2,6 +2,7 @@
 defaults: base.yaml
 
 exp_id: E000-template
+metric: smape   # template trains a synthetic regression; the real task uses er_f05 (base.yaml)
 owner: ""
 notes: "Synthetic-data smoke test for the training template."
 
