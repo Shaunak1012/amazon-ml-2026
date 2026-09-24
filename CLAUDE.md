@@ -120,5 +120,6 @@ If a level isn't available on a model, recommend the nearest one.
 - [docs/SUBMISSION_CHECKLIST.md](docs/SUBMISSION_CHECKLIST.md) — pre-submit checks + approach-doc template
 - [docs/DECISIONS.md](docs/DECISIONS.md) · [docs/DAILY_LOG.md](docs/DAILY_LOG.md) · [docs/TEAM.md](docs/TEAM.md)
 - [docs/AWS_SAGEMAKER.md](docs/AWS_SAGEMAKER.md) — when/how to burst to AWS
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — pipeline design, alternatives, roadmap
 - [docs/WORKERS.md](docs/WORKERS.md) · [docs/TASKS.md](docs/TASKS.md) — local + cloud worker protocol and task board
 - [monitor/README.md](monitor/README.md) — heartbeat + watchdog + Discord alerts
