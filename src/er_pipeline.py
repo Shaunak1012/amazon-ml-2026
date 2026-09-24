@@ -34,6 +34,20 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
+def pool_embeddings(split: str, view: str, model: str) -> np.ndarray:
+    """S2+S3 embeddings stacked in pool row order, written once to disk and memory-mapped (no RAM copy)."""
+    path = emb_dir() / f"{split}_pool_{view}_{model}.npy"
+    if not path.exists():
+        e2 = np.load(emb_dir() / f"{split}_s2_{view}_{model}.npy", mmap_mode="r")
+        e3 = np.load(emb_dir() / f"{split}_s3_{view}_{model}.npy", mmap_mode="r")
+        out = np.lib.format.open_memmap(path, mode="w+", dtype=e2.dtype, shape=(len(e2) + len(e3), e2.shape[1]))
+        out[:len(e2)] = e2
+        out[len(e2):] = e3
+        out.flush()
+        del out
+    return np.load(path, mmap_mode="r")
+
+
 class Split:
     """All cached data for one split: raw + normalised frames and embedding matrices (memory-mapped)."""
 
@@ -48,8 +62,7 @@ class Split:
         self.left = n1.set_index("entity_id")
         self.right = pd.concat([n2, n3], ignore_index=True).set_index("entity_id")
         self.emb1 = {v: np.load(emb_dir() / f"{split}_s1_{v}_{model}.npy", mmap_mode="r") for v in views}
-        self.embp = {v: np.concatenate([np.load(emb_dir() / f"{split}_s{k}_{v}_{model}.npy", mmap_mode="r")
-                                        for k in (2, 3)]) for v in views}
+        self.embp = {v: pool_embeddings(split, v, model) for v in views}
         self.views = views
         self.n2 = len(s2)
 

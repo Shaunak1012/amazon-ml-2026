@@ -37,10 +37,15 @@ def _pairwise(a: np.ndarray, b: np.ndarray, scorer) -> np.ndarray:
 def f_embed(ctx: dict) -> dict:
     """Cosine similarity per embedding view (computed for every pair, not only for retrieved ones)."""
     out = {}
+    li, ri = ctx["li"], ctx["ri"]
+    step = 1_000_000  # chunked: gathering all pairs at once needs ~23 GB per side per view at 15M pairs
     for view, (el, er) in ctx["emb"].items():
-        a = el[ctx["li"]].astype(np.float32)
-        b = er[ctx["ri"]].astype(np.float32)
-        out[f"cos_{view}"] = np.einsum("ij,ij->i", a, b).astype(np.float32)
+        cos = np.empty(len(li), dtype=np.float32)
+        for s in range(0, len(li), step):
+            a = np.asarray(el[li[s:s + step]], dtype=np.float32)
+            b = np.asarray(er[ri[s:s + step]], dtype=np.float32)
+            cos[s:s + step] = np.einsum("ij,ij->i", a, b)
+        out[f"cos_{view}"] = cos
     return out
 
 
