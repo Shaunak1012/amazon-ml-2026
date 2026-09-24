@@ -30,7 +30,7 @@ fine-tuning). Be concise, challenge weak ideas, state confidence levels (high/me
 ```
 CLAUDE.md  README.md  requirements*.txt  pyproject.toml  .env.example
 configs/        base.yaml + one yaml per experiment (E###-name.yaml)
-src/            config.py seed.py metrics.py cv.py oof.py submission.py images.py train_template.py
+src/            config.py seed.py metrics.py cv.py oof.py er_submission.py submission.py images.py train_template.py
 monitor/        heartbeat.py (import in training) watch.py (watchdog) launch.py notify.py demo.py
 scripts/        check_env.py prefetch_models.py make_submission_zip.py tag_submission.py
 tests/          pytest; must pass on synthetic data (cloud-safe, no GPU/data needed)
@@ -45,24 +45,28 @@ python scripts/check_env.py                    # env/GPU sanity
 python -m pytest                               # all tests (fast)
 python -m monitor.launch --run E001-x -- python -m src.train_template --cfg configs/E001-x.yaml
 python -m monitor.watch --run E001-x           # in a second terminal
-python -m src.submission validate submissions/E001.csv --sample data/<sample>.csv
-python -m src.images --csv data/train.csv --url-col <col> --id-col <id> --out data/images/train   # if URLs
+python -m src.er_submission validate --matching output/matching_results.tsv --candidate output/candidate_pairs.tsv --test-dir data/dataset/test
+python data/utils/validate_submission.py --matching ... --candidate ... --test-dir data/dataset/test   # organisers'
 python scripts/prefetch_models.py --dry-run    # cached backbones (e5, bge, minilm, deberta-v3, siglip, clip)
 python scripts/tag_submission.py submissions/E001.csv --exp E001-x --cv 41.2 --sample data/<sample>.csv
 python scripts/make_submission_zip.py --predictions <final.csv> --sample <sample.csv> --doc <approach.pdf>
 ```
 Windows: activate with `.venv\Scripts\activate`. Paths come from `.env` (DATA_DIR/RUNS_DIR/OOF_DIR).
 
-## Day-1 checklist (round opens 25 Sep 2026 00:00 IST)
-1. Download data into `DATA_DIR`; record file names, sizes, row counts, sha256 in `docs/COMPETITION.md`.
-2. Read problem + rules fully; fill every blank section of `docs/COMPETITION.md` (metric formula verbatim,
-   submission format, limits, allowed resources, deadlines IST). Opus+high for this.
-3. Implement the exact metric in `src/metrics.py` + edge-case tests; set `metric:` in `configs/base.yaml`.
-4. EDA (notebook): target distribution, missingness, duplicates, train/test overlap & shift, id format.
-5. Decide CV (`docs/DECISIONS.md` entry), write the folds file once, share it.
-6. Validate the **sample submission** with `src.submission validate` → proves the pipeline end-to-end.
-7. Baseline (GBDT on simple features or frozen encoder + ridge) → OOF → first submission by hour ~3.
-8. Update README (best CV/LB), EXPERIMENTS, SUBMISSIONS, DAILY_LOG; commit + push.
+## The task (details: docs/COMPETITION.md)
+**Business entity resolution:** for each Source 1 record, list the matching Source 2/3 records. Text only (name,
+address, country). Metric: **macro F0.5 per S1 entity** (`er_f05`); singletons score 1.0 only if predicted empty.
+Test adds **France** (unseen in train): stay country-agnostic. **Models: MIT/Apache, ≤ 8B params. No external data,
+lookups or geocoding** (disqualification). Deliver `matching_results.tsv` + `candidate_pairs.tsv` (TSV, strict format).
+Window closes **27 Sep 23:59 IST**. **5 submissions/day.**
+
+## Day-1 checklist (window opened 25 Sep 2026 00:00 IST)
+1. Unpack `student_resource/` into `DATA_DIR`; record row counts and sha256 in `docs/COMPETITION.md`.
+2. Run the organisers' `utils/validate_submission.py` on a trivial all-empty submission to prove the format end-to-end.
+3. EDA: singleton rate, matches per S1, S2/S3 overlap, cross-country matches, noise examples (see the playbook's ER section).
+4. CV: GroupKFold by S1, plus leave-one-country-out → `docs/DECISIONS.md`.
+5. Blocking with a measured recall curve, then a LightGBM matcher, then an F0.5-tuned decision layer. First submission by ~hour 4.
+6. Update README, EXPERIMENTS, SUBMISSIONS, DAILY_LOG; commit + push.
 
 ## Git & documentation discipline
 The GitHub repo is the single source of truth; a teammate or Amazon scientist must understand it cold.
@@ -82,8 +86,9 @@ The GitHub repo is the single source of truth; a teammate or Amazon scientist mu
 ## Submission discipline
 Before recommending any LB submission, check: daily limit (COMPETITION.md), remaining today
 (SUBMISSIONS.md), and whether CV improved meaningfully over our best submitted run (beyond fold std).
-If not, advise against submitting and say why. **Reserve ≥2 submissions for the final day.**
-Always run the validator; never submit an unvalidated file.
+If not, advise against submitting and say why. Limit: **5/day × 3 days = 15 total. Reserve ≥2 for 27 Sep.**
+Always run both validators (ours + organisers'); never submit an unvalidated file. Public LB = a test subset; the
+private LB decides. Trust CV, don't overfit the public LB.
 
 ## Model + effort routing
 End EVERY response with exactly one line:

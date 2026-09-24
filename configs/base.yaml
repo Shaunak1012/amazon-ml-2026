@@ -2,7 +2,7 @@
 # Paths come from .env (DATA_DIR / RUNS_DIR / OOF_DIR), never from configs.
 
 seed: 42
-metric: smape            # FILL ON DAY 1: exact metric name from src/metrics.py
+metric: er_f05           # macro F0.5 per Source 1 entity (entity resolution)
 
 data:
   train_file: train.csv  # FILL ON DAY 1 (relative to DATA_DIR)
