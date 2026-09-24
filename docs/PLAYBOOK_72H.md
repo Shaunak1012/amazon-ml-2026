@@ -19,7 +19,7 @@ Clock starts at data release (H0 = 25 Sep 2026 00:00 IST). Adjust ±, but never 
 - Record CV vs LB for every submission; if they disagree, stop and diagnose (Opus+high) before optimizing further.
 
 ## H12–48 · Strong models + features
-- Pretrained encoders + cheap heads first (cached embeddings → MLP/GBDT), then fine-tune the best family.
+- Pretrained encoders + cheap heads first (backbones pre-cached by `scripts/prefetch_models.py`) (cached embeddings → MLP/GBDT), then fine-tune the best family.
 - Feature work driven by error analysis on OOF (worst residuals by segment), not by guessing.
 - Diversity for the ensemble: different backbones, input views (text/image/tabular), losses, target transforms, seeds.
 - Every model: all folds, OOF + test preds saved, EXPERIMENTS.md row. Kill ideas that don't beat CV by > fold std.
@@ -54,7 +54,8 @@ Clock starts at data release (H0 = 25 Sep 2026 00:00 IST). Adjust ±, but never 
 
 ### Image
 - Frozen backbone embeddings (CLIP/SigLIP/DINOv2/ConvNeXt) + head first; fine-tune the best one after.
-- Download/resize once with a robust async downloader (retries, timeouts, placeholder for dead URLs, log failures).
+- Download/resize once with `python -m src.images` (threaded, retries/backoff, resumable, manifest of failures).
+  Start it in the first 30 min: it's usually the longest-running Day-1 job. Smoke-test with `--limit 500` first.
 - TTA (hflip) cheaply at the end; resolution matters more than epochs for fine detail.
 
 ### Multimodal text + image (2025-style)

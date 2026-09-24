@@ -30,9 +30,9 @@ fine-tuning). Be concise, challenge weak ideas, state confidence levels (high/me
 ```
 CLAUDE.md  README.md  requirements*.txt  pyproject.toml  .env.example
 configs/        base.yaml + one yaml per experiment (E###-name.yaml)
-src/            config.py seed.py metrics.py cv.py oof.py submission.py train_template.py
+src/            config.py seed.py metrics.py cv.py oof.py submission.py images.py train_template.py
 monitor/        heartbeat.py (import in training) watch.py (watchdog) launch.py notify.py demo.py
-scripts/        check_env.py make_submission_zip.py tag_submission.py
+scripts/        check_env.py prefetch_models.py make_submission_zip.py tag_submission.py
 tests/          pytest; must pass on synthetic data (cloud-safe, no GPU/data needed)
 notebooks/      EDA only; promote reusable code into src/
 docs/           see index below
@@ -46,6 +46,8 @@ python -m pytest                               # all tests (fast)
 python -m monitor.launch --run E001-x -- python -m src.train_template --cfg configs/E001-x.yaml
 python -m monitor.watch --run E001-x           # in a second terminal
 python -m src.submission validate submissions/E001.csv --sample data/<sample>.csv
+python -m src.images --csv data/train.csv --url-col <col> --id-col <id> --out data/images/train   # if URLs
+python scripts/prefetch_models.py --dry-run    # cached backbones (e5, bge, minilm, deberta-v3, siglip, clip)
 python scripts/tag_submission.py submissions/E001.csv --exp E001-x --cv 41.2 --sample data/<sample>.csv
 python scripts/make_submission_zip.py --predictions <final.csv> --sample <sample.csv> --doc <approach.pdf>
 ```
