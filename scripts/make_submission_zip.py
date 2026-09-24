@@ -72,6 +72,8 @@ def main() -> int:
     ap.add_argument("--doc", help="filled-in Documentation_template.md (or .pdf); full package only")
     ap.add_argument("--readme", default="docs/REPRODUCE.md", help="becomes code/.../README.md")
     ap.add_argument("--test-dir", help="test split dir for full validation (strongly recommended)")
+    ap.add_argument("--no-outputs", action="store_true",
+                    help="leave output/*.tsv out of the zip (small upload; the TSV goes in its own portal field)")
     ap.add_argument("--allow-dirty", action="store_true")
     ap.add_argument("--out-dir", default="dist")
     a = ap.parse_args()
@@ -111,12 +113,13 @@ def main() -> int:
         return 1
 
     sha = git("rev-parse", "--short", f"{a.ref}^{{commit}}")
-    out = ROOT / a.out_dir / f"{a.team}_submission.zip"
+    out = ROOT / a.out_dir / (f"{a.team}_submission" + ("_code" if a.no_outputs else "") + ".zip")
     out.parent.mkdir(parents=True, exist_ok=True)
     doc_name = "Documentation_template" + Path(a.doc).suffix
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(match, "output/matching_results.tsv")
-        z.write(cand, "output/candidate_pairs.tsv")
+        if not a.no_outputs:
+            z.write(match, "output/matching_results.tsv")
+            z.write(cand, "output/candidate_pairs.tsv")
         for f, b in blobs.items():
             z.writestr(f"{CODE_PREFIX}/{f}", b)
         z.writestr(f"{CODE_PREFIX}/README.md", git_bytes(a.ref, a.readme))
@@ -126,8 +129,9 @@ def main() -> int:
         z.writestr(f"{CODE_PREFIX}/BUILD_INFO.txt", "\n".join(info) + "\n")
     with zipfile.ZipFile(out) as z:
         names = z.namelist()
-    required = ["output/matching_results.tsv", "output/candidate_pairs.tsv", f"{CODE_PREFIX}/README.md",
-                f"{CODE_PREFIX}/requirements.txt", doc_name]
+    required = [f"{CODE_PREFIX}/README.md", f"{CODE_PREFIX}/requirements.txt", doc_name]
+    if not a.no_outputs:
+        required += ["output/matching_results.tsv", "output/candidate_pairs.tsv"]
     missing = [r for r in required if r not in names] + ([] if any(n.startswith(f"{CODE_PREFIX}/src/") for n in names)
                                                          else [f"{CODE_PREFIX}/src/"])
     if missing:
