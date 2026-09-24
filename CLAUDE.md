@@ -104,8 +104,9 @@ If a level isn't available on a model, recommend the nearest one.
 
 ## Usage budget (Claude Pro + one-time $100 cloud-session credit)
 - Local sessions are primary: all training, monitoring, data work (cloud VMs have no GPU and no data).
-- When plan limit is close, say so and suggest moving pure coding tasks (refactors, model/feature code,
-  approach doc) to a cloud session (`claude --cloud`); user pulls the branch and runs locally.
+- When plan limit is close (or to parallelise), hand pure coding tasks to a cloud session (`claude --cloud`)
+  following **docs/WORKERS.md** (stage contracts, file ownership, brief template, done criteria) and track them in
+  **docs/TASKS.md**. Cloud workers: read WORKERS.md first, edit only the files in your brief, branch `cloud/T<id>-*`.
 - Repo stays cloud-ready: tests run on synthetic data; real paths from `.env`; heavy dirs gitignored.
 - Hygiene: keep this file lean; read only needed files; never dump data/logs into context (head/tail/grep,
   `monitor.watch --once`); remind the user to `/clear` when switching to unrelated tasks.
@@ -119,4 +120,5 @@ If a level isn't available on a model, recommend the nearest one.
 - [docs/SUBMISSION_CHECKLIST.md](docs/SUBMISSION_CHECKLIST.md) — pre-submit checks + approach-doc template
 - [docs/DECISIONS.md](docs/DECISIONS.md) · [docs/DAILY_LOG.md](docs/DAILY_LOG.md) · [docs/TEAM.md](docs/TEAM.md)
 - [docs/AWS_SAGEMAKER.md](docs/AWS_SAGEMAKER.md) — when/how to burst to AWS
+- [docs/WORKERS.md](docs/WORKERS.md) · [docs/TASKS.md](docs/TASKS.md) — local + cloud worker protocol and task board
 - [monitor/README.md](monitor/README.md) — heartbeat + watchdog + Discord alerts
