@@ -168,6 +168,9 @@ def cmd_validate(a: argparse.Namespace) -> None:
 
 def cmd_predict(a: argparse.Namespace) -> None:
     """Fit on train S1 (all folds, grouped OOF), tune the threshold on that OOF, predict the full test split."""
+    import os
+
+    from monitor import Heartbeat
     from src.er_data import dataset_dir
     from src.er_submission import write_outputs
 
@@ -175,6 +178,8 @@ def cmd_predict(a: argparse.Namespace) -> None:
     out_dir = Path(a.out)
     run_dir = Path("runs") / a.exp
     run_dir.mkdir(parents=True, exist_ok=True)
+    hb = Heartbeat(os.environ.get("RUN_ID", a.exp), total_steps=12, every_steps=1, metric_name="train_oof_f05")
+    hb.step(0, force=True, stage="load train")
     d = Split("train", a.model)
     folds = pd.read_parquet(cache_dir() / "folds_s1_k5.parquet").set_index("s1_id").reindex(d.s1.entity_id)
     rng = np.random.default_rng(42)
@@ -185,12 +190,15 @@ def cmd_predict(a: argparse.Namespace) -> None:
     truth = set(zip(d.gt.s1_id, d.gt.cand_id))
     X["y"] = [(s, c) in truth for s, c in zip(X.s1_id, X.cand_id)]
     log(f"train: {len(X):,} pairs from {tr_mask.sum():,} S1 [{time.time() - t0:.0f}s]")
+    hb.step(1, force=True, stage="lightgbm")
     groups = folds.fold.reindex(X.s1_id).to_numpy()
     oof, models = train_oof(X, X.y.to_numpy().astype(int), groups, {"learning_rate": a.lr},
                             num_boost_round=a.rounds, early_stopping=50)
     y_tr = d.truth(d.s1.entity_id[tr_mask])
     t, f, _ = tune_threshold(X[["s1_id", "cand_id"]].assign(prob=oof), y_tr, assign=True)
     log(f"fitted {len(models)} models; OOF F0.5 {f:.4f} at threshold {t} [{time.time() - t0:.0f}s]")
+    hb.val(f)
+    hb.step(2, force=True, stage="test")
     for i, m in enumerate(models):
         m.save_model(str(run_dir / f"lgbm_fold{i}.txt"))
     del d, X, pairs
@@ -206,6 +214,7 @@ def cmd_predict(a: argparse.Namespace) -> None:
         prob_parts.append(Xt[["s1_id", "cand_id"]].assign(prob=predict(models, Xt).astype(np.float32)))
         cand_parts.append(tp[["s1_id", "cand_id"]])
         log(f"test chunk {start // a.chunk + 1}: {len(tp):,} pairs [{time.time() - t0:.0f}s]")
+        hb.step(2 + start // a.chunk + 1, force=True, stage="test chunks")
     probs = pd.concat(prob_parts, ignore_index=True)
     probs.to_parquet(run_dir / "test_probs.parquet", index=False)
     cands = pd.concat(cand_parts, ignore_index=True)
@@ -221,6 +230,7 @@ def cmd_predict(a: argparse.Namespace) -> None:
             "runtime_s": round(time.time() - t0)}
     (run_dir / "predict.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
     log(json.dumps(info))
+    hb.finish("completed")
 
 
 def main() -> None:
