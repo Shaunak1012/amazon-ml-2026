@@ -2,6 +2,32 @@
 
 Newest first. Each entry: what we chose, what else we considered, why — in plain language.
 
+## 2026-09-25 — EDA-driven design decisions (P0) — full report: `python scripts/eda.py` → runs/eda/report.md
+Facts (train): singleton rate **5.6%**; mean **3.46 matches/S1** (80% of S1 have both S2 and S3 matches);
+**0 records matched to >1 S1**; **0 cross-country pairs**; ~26% of S2/S3 records are distractors (no S1);
+India S2/S3 names are **~24% non-Latin** (Devanagari **and** other Indic scripts: Kannada, Telugu, Gujarati),
+Indic scripts also appear in addresses (state names); some matched names are **replaced by gibberish**
+("Nylaorbiquo") while the address is intact; "F/K/A" names; leetspeak ("C0mpany"); literal `null` in addresses;
+34% of test S1 names occur verbatim as train S1 names (names are reused across different businesses).
+No row-order or ID-number relationship between S1 and its matches (Spearman ≈ 0.0001) → no leakage.
+Test differs: France 15% of S1; **(S2+S3)/S1 = 5.75 in test vs 4.68 in train** → more records per entity or more
+distractors in test.
+
+Decisions:
+1. **Hard assignment constraint** — each S2/S3 record goes to at most one S1 (0 violations in 7.6M pairs).
+2. **Block within the same `country` string** — 0 cross-country pairs; generic (works for France, no hard-coding).
+3. **Address is a first-class signal**: blocking and features get an address view (house numbers, street tokens,
+   locality), not just names — names can be gibberish or shared by different businesses.
+4. **Transliterate every non-Latin script** (anyascii) for char features; keep original text for multilingual e5.
+   Clean literal `null` tokens.
+5. **Empty-set decisions are rare** (5.6%), so recall matters more than the metric name suggests: most entities need
+   *some* match; the expected-F0.5 decision layer handles the trade-off per entity.
+6. **Validation:** 5 folds by S1 (random, seed 42; S1 entities are independent). Candidates for a held-out fold are
+   retrieved from the **full** train S2/S3 pool (same pool size as test). Dev loop = 100k S1 sampled from fold 0.
+   Plus leave-one-country-out (US↔India) for the France margin.
+7. **Probe #1 (all-empty)** is informative: its public score = public singleton rate; compare to train 5.6% to
+   see whether test's higher record ratio means more distractors or more matches per entity.
+
 ## 2026-09-24 — Initial strategy for Business Entity Resolution (before seeing the data; revisit after EDA)
 - **Chose:** a classic, auditable three-stage pipeline.
   1. **Normalise** names and addresses: lowercase, strip accents, unify punctuation and `&`, map legal suffixes to
