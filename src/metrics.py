@@ -188,3 +188,38 @@ def map_at_k(actual: Sequence[Sequence], predicted: Sequence[Sequence], k: int =
                 s += hits / (i + 1)
         scores.append(s / min(len(act), k))
     return float(np.mean(scores)) if scores else 0.0
+
+
+# ------------------------------------------------------- entity resolution (2026)
+def parse_id_list(cell) -> set[str]:
+    """'S2-1,S3-4' -> {'S2-1','S3-4'}; empty/NaN/None -> set()."""
+    if cell is None or (isinstance(cell, float) and np.isnan(cell)):
+        return set()
+    return {t.strip() for t in str(cell).split(",") if t.strip()}
+
+
+def entity_fbeta(true: set, pred: set, beta: float = 0.5) -> float:
+    """Per-Source-1-entity F_beta exactly as the 2026 statement defines it.
+
+    both empty -> 1.0 (correct singleton); exactly one empty -> 0.0; no overlap -> 0.0.
+    """
+    if not true and not pred:
+        return 1.0
+    tp = len(true & pred)
+    if tp == 0:
+        return 0.0
+    p, r = tp / len(pred), tp / len(true)
+    b2 = beta * beta
+    return (1 + b2) * p * r / (b2 * p + r)
+
+
+@register("er_f05", higher_is_better=True)
+def er_fbeta_macro(y_true: dict, y_pred: dict, beta: float = 0.5) -> float:
+    """Macro F_0.5 over ALL Source 1 entities in y_true (keys = S1 ids, values = sets of S2/S3 ids).
+
+    S1 ids missing from y_pred count as empty predictions. Extra keys in y_pred are ignored
+    (the portal would reject them; src/er_submission.py catches that separately).
+    """
+    if not y_true:
+        raise ValueError("y_true is empty")
+    return float(np.mean([entity_fbeta(set(t), set(y_pred.get(k, ())), beta) for k, t in y_true.items()]))

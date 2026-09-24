@@ -69,3 +69,39 @@ def test_ranking():
     assert m("map_at_k")([[1, 2]], [[1, 2, 3]], k=3) == 1.0
     assert m("map_at_k")([[3]], [[1, 2, 3]], k=3) == pytest.approx(1 / 3)
     assert m("ndcg")([[3, 2, 1]], [[0.9, 0.5, 0.1]]) == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------- 2026 entity resolution F0.5
+from src.metrics import entity_fbeta, er_fbeta_macro, parse_id_list  # noqa: E402
+
+
+def test_er_statement_example():
+    # verbatim example from the problem statement -> 0.714
+    f = entity_fbeta({"S2-00047", "S3-00812"}, {"S2-00047", "S2-00193", "S3-00812"})
+    assert f == pytest.approx(0.7142857, abs=1e-6)
+    assert round(f, 3) == 0.714
+
+
+def test_er_singleton_and_edge_cases():
+    assert entity_fbeta(set(), set()) == 1.0            # correct singleton
+    assert entity_fbeta(set(), {"S2-1"}) == 0.0         # false merge on a singleton
+    assert entity_fbeta({"S2-1"}, set()) == 0.0         # missed everything
+    assert entity_fbeta({"S2-1"}, {"S3-9"}) == 0.0      # wrong match
+    assert entity_fbeta({"S2-1", "S3-2"}, {"S2-1", "S3-2"}) == 1.0
+    # precision-heavy: 1 of 2 true found with no FP beats 2 of 2 found with 2 FP
+    assert entity_fbeta({"a", "b"}, {"a"}) > entity_fbeta({"a", "b"}, {"a", "b", "c", "d"})
+    assert entity_fbeta({"a", "b"}, {"a"}) == pytest.approx(1.25 * 0.5 / (0.25 + 0.5))
+
+
+def test_er_macro_average_and_missing_keys():
+    y_true = {"S1-1": {"S2-1"}, "S1-2": set(), "S1-3": {"S2-3", "S3-3"}}
+    y_pred = {"S1-1": {"S2-1"}, "S1-3": {"S2-3"}}       # S1-2 missing -> empty -> correct singleton
+    exp = (1.0 + 1.0 + 1.25 * 1 * 0.5 / (0.25 * 1 + 0.5)) / 3
+    assert er_fbeta_macro(y_true, y_pred) == pytest.approx(exp)
+    assert get_metric("er_f05")[1] is True
+
+
+def test_parse_id_list():
+    assert parse_id_list("S2-1,S3-4") == {"S2-1", "S3-4"}
+    assert parse_id_list(" S2-1 , S2-1 ,") == {"S2-1"}
+    assert parse_id_list("") == set() and parse_id_list(None) == set() and parse_id_list(float("nan")) == set()
