@@ -5,6 +5,7 @@
 
 # --- Data, runs, weights (never commit) ---
 data/
+data_synth/
 runs/
 checkpoints/
 outputs/
