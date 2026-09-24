@@ -1,0 +1,185 @@
+"""End-to-end pipeline: retrieve -> features -> LightGBM -> decide. Contract: docs/WORKERS.md.
+
+    # validation experiment: train on S1 from folds 1-4 (OOF), tune decisions on that OOF, score the dev subset
+    python -m src.er_pipeline validate --exp E003-baseline --k 10 --train-s1 200000
+    # full test run: train on all train S1 folds, predict test, write both output TSVs
+    python -m src.er_pipeline predict --exp E003-baseline --k 10 --out submissions/sub02_E003
+
+Leakage rules (docs/DECISIONS.md, review): decisions/thresholds are tuned on training-fold OOF only; the dev S1s
+never influence any fitted quantity. Retrieval searches the FULL S2/S3 pool of the split, restricted to the same
+country string.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import time
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from src.er_blocking import blocking_recall, dense_candidates
+from src.er_data import cache_dir, load
+from src.er_decide import decide, decide_expected_f, tune_threshold
+from src.er_embed import emb_dir
+from src.er_features import build_features
+from src.er_model import importance, predict, train_oof
+from src.metrics import er_fbeta_macro
+
+VIEWS = ("name", "addr", "both")
+
+
+def log(msg: str) -> None:
+    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+class Split:
+    """All cached data for one split: raw + normalised frames and embedding matrices (memory-mapped)."""
+
+    def __init__(self, split: str, model: str = "small", views=VIEWS):
+        self.split = split
+        s1, s2, s3, gt = load(split, with_gt=(split == "train"))
+        self.s1, self.pool = s1, pd.concat([s2, s3], ignore_index=True)
+        self.gt = gt
+        n1 = pd.read_parquet(cache_dir() / f"{split}_s1_norm.parquet")
+        n2 = pd.read_parquet(cache_dir() / f"{split}_s2_norm.parquet")
+        n3 = pd.read_parquet(cache_dir() / f"{split}_s3_norm.parquet")
+        self.left = n1.set_index("entity_id")
+        self.right = pd.concat([n2, n3], ignore_index=True).set_index("entity_id")
+        self.emb1 = {v: np.load(emb_dir() / f"{split}_s1_{v}_{model}.npy", mmap_mode="r") for v in views}
+        self.embp = {v: np.concatenate([np.load(emb_dir() / f"{split}_s{k}_{v}_{model}.npy", mmap_mode="r")
+                                        for k in (2, 3)]) for v in views}
+        self.views = views
+        self.n2 = len(s2)
+
+    def truth(self, s1_ids) -> dict[str, set[str]]:
+        g = self.gt[self.gt.s1_id.isin(set(s1_ids))]
+        y = {s: set() for s in s1_ids}
+        for s, c in zip(g.s1_id.to_numpy(), g.cand_id.to_numpy()):
+            y[s].add(c)
+        return y
+
+
+def retrieve(d: Split, s1_mask: np.ndarray, k: int) -> pd.DataFrame:
+    """Union of per-view, per-source top-k candidates; one row per unique pair with rank_<view> columns."""
+    q = d.s1[s1_mask].reset_index(drop=True)
+    parts = []
+    for view in d.views:
+        e1 = np.ascontiguousarray(d.emb1[view][s1_mask])
+        for sl in (slice(0, d.n2), slice(d.n2, None)):  # S2 and S3 searched separately
+            pool = d.pool.iloc[sl].reset_index(drop=True)
+            c = dense_candidates(q, pool, e1, np.ascontiguousarray(d.embp[view][sl]), k=k, view=view)
+            parts.append(c)
+    c = pd.concat(parts, ignore_index=True)
+    wide = c.pivot_table(index=["s1_id", "cand_id"], columns="view", values="rank", aggfunc="min")
+    wide.columns = [f"rank_{v}" for v in wide.columns]
+    return wide.reset_index().fillna(k)   # "not retrieved by this view" = rank k
+
+
+def featurize(d: Split, pairs: pd.DataFrame) -> pd.DataFrame:
+    left_pos = d.left.index.get_indexer(pairs.s1_id)
+    right_pos = d.right.index.get_indexer(pairs.cand_id)
+    emb = {v: (d.emb1[v], d.embp[v]) for v in d.views}
+    # build_features indexes emb by left/right row order, which matches the cached parquet order
+    assert (left_pos >= 0).all() and (right_pos >= 0).all()
+    return build_features(pairs, d.left, d.right, emb)
+
+
+def evaluate_strategies(p_tr: pd.DataFrame, y_tr: dict, p_dev: pd.DataFrame, y_dev: dict) -> dict:
+    """Tune each decision strategy on TRAINING OOF, then score it once on dev."""
+    res = {}
+    t, f, _ = tune_threshold(p_tr, y_tr, assign=True)
+    res["threshold+assign"] = {"t": t, "train_oof": f, "dev": er_fbeta_macro(y_dev, decide(p_dev, t, True))}
+    t2, f2, _ = tune_threshold(p_tr, y_tr, assign=False)
+    res["threshold_no_assign"] = {"t": t2, "train_oof": f2, "dev": er_fbeta_macro(y_dev, decide(p_dev, t2, False))}
+    best = (-1, None, None)
+    for fb in (0.1, 0.2, 0.3):
+        tt, ff, _ = tune_threshold(p_tr, y_tr, assign=True, top1_fallback=fb)
+        if ff > best[0]:
+            best = (ff, tt, fb)
+    ff, tt, fb = best
+    res["threshold+assign+top1"] = {"t": tt, "fallback": fb, "train_oof": ff,
+                                    "dev": er_fbeta_macro(y_dev, decide(p_dev, tt, True, fb))}
+    sub_tr = p_tr[p_tr.s1_id.isin(list(y_tr)[:50_000])]
+    y_sub = {k: y_tr[k] for k in list(y_tr)[:50_000]}
+    res["expected_f+assign"] = {"train_oof": er_fbeta_macro(y_sub, decide_expected_f(sub_tr)),
+                                "dev": er_fbeta_macro(y_dev, decide_expected_f(p_dev))}
+    return res
+
+
+def cmd_validate(a: argparse.Namespace) -> None:
+    out = Path("runs") / a.exp
+    out.mkdir(parents=True, exist_ok=True)
+    t0 = time.time()
+    d = Split("train", a.model)
+    folds = pd.read_parquet(cache_dir() / "folds_s1_k5.parquet").set_index("s1_id").reindex(d.s1.entity_id)
+    rng = np.random.default_rng(42)
+    tr_ids = rng.choice(np.flatnonzero(folds.fold.to_numpy() != 0), size=a.train_s1, replace=False)
+    tr_mask = np.zeros(len(d.s1), bool)
+    tr_mask[tr_ids] = True
+    dev_mask = folds.dev.to_numpy().astype(bool)
+    log(f"train S1 {tr_mask.sum():,} (folds 1-4), dev S1 {dev_mask.sum():,} (fold 0)")
+
+    res: dict = {"exp": a.exp, "k": a.k, "model": a.model, "train_s1": int(tr_mask.sum()), "dev_s1": int(dev_mask.sum())}
+    frames = {}
+    for name, mask in (("train", tr_mask), ("dev", dev_mask)):
+        t = time.time()
+        pairs = retrieve(d, mask, a.k)
+        ids = d.s1.entity_id[mask]
+        rec = blocking_recall(pairs.assign(rank=pairs.filter(like="rank_").min(1)), d.gt, ids, ks=(a.k,))
+        log(f"{name}: {len(pairs):,} pairs ({len(pairs) / mask.sum():.1f}/S1), union recall {rec[f'recall@{a.k}']:.4f} "
+            f"[{time.time() - t:.0f}s]")
+        res[f"{name}_pairs_per_s1"] = len(pairs) / mask.sum()
+        res[f"{name}_blocking_recall"] = rec[f"recall@{a.k}"]
+        t = time.time()
+        X = featurize(d, pairs)
+        truth = set(zip(d.gt.s1_id, d.gt.cand_id))
+        X["y"] = [(s, c) in truth for s, c in zip(X.s1_id, X.cand_id)]
+        log(f"{name}: features {X.shape} [{time.time() - t:.0f}s]")
+        frames[name] = (X, ids)
+
+    Xtr, tr_ids_s = frames["train"]
+    Xdev, dev_ids_s = frames["dev"]
+    groups = folds.fold.reindex(Xtr.s1_id).to_numpy()
+    t = time.time()
+    oof, models = train_oof(Xtr, Xtr.y.to_numpy().astype(int), groups,
+                            {"learning_rate": a.lr}, num_boost_round=a.rounds, early_stopping=50)
+    log(f"LightGBM: {len(models)} fold models [{time.time() - t:.0f}s]")
+    p_tr = Xtr[["s1_id", "cand_id"]].assign(prob=oof)
+    p_dev = Xdev[["s1_id", "cand_id"]].assign(prob=predict(models, Xdev))
+    y_tr, y_dev = d.truth(tr_ids_s), d.truth(dev_ids_s)
+    res["strategies"] = evaluate_strategies(p_tr, y_tr, p_dev, y_dev)
+    best = max(res["strategies"].items(), key=lambda kv: kv[1]["train_oof"])
+    res["chosen"] = best[0]
+    res["dev_f05"] = best[1]["dev"]
+    # per-country dev score for the chosen strategy (diagnostic only)
+    ctry = d.s1.set_index("entity_id").country
+    chosen_pred = (decide_expected_f(p_dev) if best[0].startswith("expected") else
+                   decide(p_dev, best[1]["t"], "no_assign" not in best[0], best[1].get("fallback")))
+    res["dev_f05_by_country"] = {c: er_fbeta_macro({k: v for k, v in y_dev.items() if ctry[k] == c}, chosen_pred)
+                                 for c in ctry.reindex(list(y_dev)).unique()}
+    res["top_features"] = importance(models).head(15).round(4).to_dict()
+    res["runtime_s"] = round(time.time() - t0)
+    p_dev.to_parquet(out / "dev_probs.parquet", index=False)
+    (out / "result.json").write_text(json.dumps(res, indent=2), encoding="utf-8")
+    log(json.dumps({k: res[k] for k in ("chosen", "dev_f05", "dev_f05_by_country", "dev_blocking_recall")}, indent=1))
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(prog="python -m src.er_pipeline")
+    sp = ap.add_subparsers(dest="cmd", required=True)
+    v = sp.add_parser("validate")
+    v.add_argument("--exp", required=True)
+    v.add_argument("--k", type=int, default=10, help="top-k per view per source")
+    v.add_argument("--train-s1", type=int, default=200_000)
+    v.add_argument("--lr", type=float, default=0.1)
+    v.add_argument("--rounds", type=int, default=1000)
+    v.add_argument("--model", default="small")
+    a = ap.parse_args()
+    if a.cmd == "validate":
+        cmd_validate(a)
+
+
+if __name__ == "__main__":
+    main()
