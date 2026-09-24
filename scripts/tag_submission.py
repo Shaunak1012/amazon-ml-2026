@@ -1,6 +1,7 @@
 """Pre-upload gate: validate the file, require a clean tree, tag the commit sub-NN, log a ledger row.
 
-    python scripts/tag_submission.py submissions/E012.csv --exp E012-lgbm-text --cv 41.23 --sample data/sample.csv
+    python scripts/tag_submission.py submissions/sub02_E003 --exp E003-baseline --cv 0.8123
+    (folder with matching_results.tsv + candidate_pairs.tsv; validated against data/dataset/test)
 
 Steps: validate predictions -> refuse if uncommitted changes -> create annotated tag sub-NN
 on HEAD -> append a row to docs/SUBMISSIONS.md (LB column left blank) -> print the git
@@ -27,17 +28,20 @@ def git(*args: str) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("predictions")
+    ap.add_argument("predictions", help="folder containing matching_results.tsv and candidate_pairs.tsv")
     ap.add_argument("--exp", required=True, help="experiment id, e.g. E012-lgbm-text")
     ap.add_argument("--cv", required=True, help="local CV score")
-    ap.add_argument("--sample", help="official sample submission for validation")
+    ap.add_argument("--test-dir", default=None, help="default: <DATA_DIR>/dataset/test")
     ap.add_argument("--remaining", default="?", help="submissions remaining today AFTER this one")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 
-    from src.submission import validate_submission
+    from src.er_data import dataset_dir
+    from src.er_submission import validate_outputs
 
-    rep = validate_submission(a.predictions, sample=a.sample)
+    folder = Path(a.predictions)
+    rep = validate_outputs(folder / "matching_results.tsv", folder / "candidate_pairs.tsv",
+                           test_dir=a.test_dir or dataset_dir() / "test")
     print(rep)
     if not rep.ok:
         return 1
