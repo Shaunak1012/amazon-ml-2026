@@ -1,0 +1,55 @@
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Data, runs, weights (never commit) ---
+data/
+runs/
+checkpoints/
+outputs/
+submissions/
+oof/
+wandb/
+mlruns/
+lightning_logs/
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.onnx
+*.h5
+*.pkl
+*.joblib
+*.npy
+*.npz
+*.parquet
+*.feather
+*.zip
+*.tar
+*.tar.gz
+*.7z
+catboost_info/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+build/
+dist/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Claude Code local settings ---
+.claude/settings.local.json
