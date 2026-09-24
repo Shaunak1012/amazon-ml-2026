@@ -11,6 +11,10 @@
 - code comes from git-tracked files only (no data, weights, .env); refuses uncommitted changes unless --allow-dirty
 - code/.../README.md is docs/REPRODUCE.md (exact end-to-end run instructions), not the repo README
 - both TSVs are validated with src.er_submission (incl. matches ⊆ candidates) before zipping
+
+Per-submission code upload (the portal asks for a code zip with EVERY leaderboard upload):
+    python scripts/make_submission_zip.py --code-only --ref sub-03
+    -> dist/code_sub-03.zip: code/business_entity_resolution/... exactly as committed at that tag
 """
 from __future__ import annotations
 
@@ -33,16 +37,48 @@ def git(*args: str) -> str:
     return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
 
 
+def git_bytes(ref: str, path: str) -> bytes:
+    return subprocess.run(["git", "show", f"{ref}:{path}"], cwd=ROOT, capture_output=True, check=True).stdout
+
+
+def code_only(ref: str, out_dir: str) -> int:
+    """Zip the code as it exists at `ref` (a sub-NN tag), in the organisers' code/ layout."""
+    sha = git("rev-parse", "--short", f"{ref}^{{commit}}")
+    files = [f for f in git("ls-tree", "-r", "--name-only", ref).splitlines()
+             if f.startswith(CODE_DIRS) or f in CODE_FILES]
+    if any(Path(f).name == ".env" for f in files):
+        print("ERROR: .env tracked at this ref")
+        return 1
+    out = ROOT / out_dir / f"code_{ref}.zip"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    readme = git_bytes(ref, "docs/REPRODUCE.md") if "docs/REPRODUCE.md" in git("ls-tree", "-r", "--name-only", ref) else b""
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in files:
+            z.writestr(f"{CODE_PREFIX}/{f}", git_bytes(ref, f))
+        if readme:
+            z.writestr(f"{CODE_PREFIX}/README.md", readme)
+        info = [f"ref: {ref}", f"commit: {git('rev-parse', f'{ref}^{{commit}}')}", f"built: {datetime.now(timezone.utc).isoformat()}"]
+        z.writestr(f"{CODE_PREFIX}/BUILD_INFO.txt", "\n".join(info) + "\n")
+    print(f"wrote {out} ({out.stat().st_size / 2**20:.2f} MB, {len(files)} code files, {ref} = {sha})")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--team", required=True, help="team name used in <team>_submission.zip")
+    ap.add_argument("--code-only", action="store_true", help="just the code zip for a leaderboard upload")
+    ap.add_argument("--ref", default="HEAD", help="git ref for --code-only (use the sub-NN tag)")
+    ap.add_argument("--team", help="team name used in <team>_submission.zip (full package)")
     ap.add_argument("--outputs", default="output", help="folder with matching_results.tsv + candidate_pairs.tsv")
-    ap.add_argument("--doc", required=True, help="filled-in Documentation_template.md (or .pdf)")
+    ap.add_argument("--doc", help="filled-in Documentation_template.md (or .pdf); full package only")
     ap.add_argument("--readme", default="docs/REPRODUCE.md", help="becomes code/.../README.md")
     ap.add_argument("--test-dir", help="test split dir for full validation (strongly recommended)")
     ap.add_argument("--allow-dirty", action="store_true")
     ap.add_argument("--out-dir", default="dist")
     a = ap.parse_args()
+    if a.code_only:
+        return code_only(a.ref, a.out_dir)
+    if not a.team or not a.doc:
+        ap.error("--team and --doc are required for the full package (or use --code-only)")
 
     if git("status", "--porcelain", "--untracked-files=no") and not a.allow_dirty:
         print("ERROR: uncommitted changes. Commit first (the zip must be reproducible from a commit).")
