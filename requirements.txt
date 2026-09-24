@@ -29,6 +29,8 @@ bitsandbytes==0.50.2   # 8-bit optimizers / QLoRA; verified importable + AdamW8b
 sentencepiece==0.2.2   # DeBERTa-v3 / T5 tokenizers
 protobuf==7.36.2
 rapidfuzz==3.14.6      # fuzzy text matching / near-duplicate checks
+anyascii==0.3.3        # rule-based transliteration (e.g. Devanagari -> Latin), ISC licence
+jellyfish==1.2.1       # phonetic codes (metaphone), Jaro-Winkler
 
 # EDA
 jupyterlab==4.6.4
