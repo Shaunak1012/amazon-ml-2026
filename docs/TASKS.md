@@ -5,7 +5,7 @@ One row per task; the local worker keeps this current (cloud workers never edit 
 
 | id | task | owner | branch | files | status | notes |
 |---|---|---|---|---|---|---|
-| T001 | EDA + CV design on real data | local | main | notebooks/, docs/DECISIONS.md | todo | needs student_resource |
+| T001 | EDA + CV design on real data | local | main | notebooks/, docs/DECISIONS.md | todo | data in data/dataset (2.2M S1 × 10M S2+S3) |
 | T002 | Normalisation functions + tests | — | — | src/er_normalize.py | todo | good cloud candidate once EDA shows real noise examples |
 | T003 | Blocking retrievers + recall curve | local | main | src/er_blocking.py | todo | K chosen on real data |
 | T004 | Feature groups (rapidfuzz, TF-IDF, numbers) | — | — | src/er_features.py | todo | good cloud candidate |

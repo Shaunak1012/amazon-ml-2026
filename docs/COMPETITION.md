@@ -43,7 +43,29 @@ All files are **tab-separated** (`sep="\t"`); addresses and ID lists contain com
 - ID prefix gives the source: `S1-`, `S2-`, `S3-` (example format `S1-00001`). There is no separate source column.
 - Organiser helpers in `student_resource/`: `utils/validate_submission.py` (stdlib-only format checker; doesn't
   score) and `Documentation_template.md`.
-- Row counts, sizes and sha256 per file: **TBD when the data arrives**. Record them here.
+Received 2026-09-25 00:22 IST. Our copy is at `data/dataset/`, `data/utils/`, `data/Documentation_template.md`.
+Row counts exclude the header and come from `wc -l`; re-check them with pandas during EDA.
+
+| File | Rows | Size | sha256 (first 12) |
+|---|---:|---:|---|
+| train_source1.tsv | 2,206,821 | 210 MB | 591af0e1dfeb |
+| train_source2.tsv | 5,034,616 | 489 MB | 6336c1a055ee |
+| train_source3.tsv | 5,285,603 | 504 MB | 67da22f51518 |
+| train_ground_truth.tsv | 2,206,821 | 127 MB | 70bc1d8a16c6 |
+| test_source1.tsv | 1,732,544 | 175 MB | 3d4a32c54c2c |
+| test_source2.tsv | 4,887,273 | 509 MB | 79d906c7497a |
+| test_source3.tsv | 5,082,316 | 506 MB | 850942b11d2a |
+
+First look (the first few rows only; EDA will quantify all of these):
+- **Scale:** 2.2M S1 × ~10M S2+S3 in train. Blocking must be scalable (no all-pairs); test is about the same size.
+- IDs aren't zero-padded and vary in length (`S1-965667`, `S1-925783039`). Always treat IDs as strings.
+- **Mixed scripts:** some S2 names are in **Devanagari** (e.g. a Hindi rendering of "Ram Marketing Private
+  Limited"), so matching must cross scripts, not just spellings.
+- Junk tokens in names (`--`, `<<`), a legal suffix moved to the front ("LLC Moncada …"), an injected accent
+  ("Léarning"), and a website domain used as the name (`wilfordhancock.com`).
+- **Empty addresses** occur. Addresses vary in case and order ("IA, Iowa City, 1064 Newton Rd, Unit 11") and spell
+  states in full or abbreviated ("Texas" vs "TX").
+- Ground-truth lists can be long: 3–5 matches per S1, from both S2 and S3.
 
 ## Submission format
 Two TSV files, both in `output/`:
