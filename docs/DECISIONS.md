@@ -2,6 +2,21 @@
 
 Newest first. Each entry: what we chose, what else we considered, why — in plain language.
 
+## 2026-09-25 — Teammate review of the architecture: accepted changes
+1. **One-S1-per-record is evidence-based, but still ablated.** Train shows 0 records mapped to >1 S1 in 7.64M pairs.
+   It's still a train-set fact, not a stated rule, so the decision layer keeps it **switchable** and we report
+   held-out F0.5 with and without it before relying on it.
+2. **No validation labels in anything learned.** Abbreviation/state maps, TF-IDF vocabularies fitted on labels,
+   thresholds and calibrators are learned **inside each training fold** and applied to that fold's held-out S1s.
+   Label-free fits (e.g. TF-IDF on text only) may use all rows. For the test run, everything is refit on all of train.
+3. **LOCO is a robustness check, not a France score.** It tells us whether the approach leans on country-specific
+   patterns. The only direct France signal is the public-LB France probe (and it covers only the public subset).
+4. **Estimates are hypotheses.** Candidate counts, memory, and runtimes for every retriever are measured on the dev
+   subset and logged in EXPERIMENTS.md before being scaled up. Nothing is sized from the architecture's estimates.
+5. **The expected-F0.5 subset optimiser is an experiment.** It's compared against a global threshold and a
+   threshold + top-1 fallback on held-out per-entity F0.5, and kept only if it wins by more than fold noise.
+   (Calibration quality and the coupling created by the assignment constraint can erase its gains.)
+
 ## 2026-09-25 — EDA-driven design decisions (P0) — full report: `python scripts/eda.py` → runs/eda/report.md
 Facts (train): singleton rate **5.6%**; mean **3.46 matches/S1** (80% of S1 have both S2 and S3 matches);
 **0 records matched to >1 S1**; **0 cross-country pairs**; ~26% of S2/S3 records are distractors (no S1);
