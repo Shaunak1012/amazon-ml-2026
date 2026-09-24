@@ -1,7 +1,9 @@
 # AWS SageMaker AI — practical guide
 
-> Credit amounts, instance quotas, and prices change — **verify in AWS console** (Billing → Credits;
-> Service Quotas → SageMaker). Nothing here assumes a specific credit balance.
+> Per the organisers: **$200 AWS credits per registered participant**, **+$100 for the top 500 teams at the
+> 48-hour mark**. Check the actual balance and expiry in the AWS console (Billing → Credits). Instance quotas and
+> prices change too, so **verify in the AWS console** (Service Quotas → SageMaker). New accounts often have **0 GPU quota**:
+> request `ml.g5.xlarge` notebook/training quota **before Day 1**, because approval can take hours.
 
 ## What it is
 Amazon SageMaker AI is AWS's managed ML platform. The pieces that matter for us:
@@ -19,7 +21,8 @@ Rule of thumb: only burst to AWS when the local queue is full for > 6 h or VRAM 
 time and setup (~30–60 min first time) are real costs in a 72 h event.
 
 ## Quick path A — notebook (simplest)
-1. Console → SageMaker AI → Studio → create/open domain (default settings) → JupyterLab space.
+1. Console → SageMaker AI → Notebook instances → Create (simplest; the organisers' blog uses this because Studio
+   domain setup can lag on new accounts). Studio → JupyterLab space also works.
 2. Pick instance: `ml.g5.xlarge` (A10G 24 GB) or `ml.g6.xlarge` (L4 24 GB) for most things; verify quota ≥ 1.
 3. Clone the repo in the terminal, `pip install -r requirements-core.txt` + torch for the image's CUDA.
 4. Copy data from S3: `aws s3 sync s3://<bucket>/data ./data`.
@@ -49,7 +52,8 @@ Inside the job, data is at `/opt/ml/input/data/train`, outputs go to `/opt/ml/mo
 - **Delete endpoints** you created (they bill 24/7): SageMaker → Inference → Endpoints.
 - `max_run` on every training job; prefer spot + checkpoints.
 - Delete large S3 artifacts after the event; check EBS volumes of stopped notebook instances.
-- Region: pick one (e.g. `ap-south-1` Mumbai) and keep data + compute in it to avoid transfer fees.
+- Region: `us-east-1` (recommended in the organisers' prep blog; widest instance availability). Keep data and compute
+  in one region to avoid transfer fees.
 - Before the Finale, check Billing → Bills for any still-running resources.
 
 ## Rules check
