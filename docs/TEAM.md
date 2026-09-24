@@ -27,6 +27,28 @@ AWS, or Kaggle/Colab notebooks for their own experiments.
   `OOF_DIR`, or an S3 bucket (`aws s3 sync oof/ s3://<bucket>/oof/`). OOF files are small (MBs); never commit them.
 - Add the EXPERIMENTS.md row when you upload OOFs, so the Lead knows it's ready for blending.
 
+## Submission queue (5 per day for the whole team, unused slots are lost at the daily reset)
+One queue, one bar, one submitter. It doesn't matter whose model it is; the best validated one goes in.
+1. **Same yardstick:** score on the shared folds (`data/cache/folds_s1_k5.parquet`) with `er_f05`
+   (`src/metrics.py`). Numbers from other splits or other metric code aren't comparable and don't count.
+2. **Entry ticket:** code committed on your branch (reproducible: the final zip must regenerate what we're ranked
+   on); validation F0.5 reported (mean ± std over folds, or the dev subset for quick checks); both validators pass
+   (`python -m src.er_submission validate ...` and `data/utils/validate_submission.py`).
+3. **Bar:** it beats our best *submitted* validation score by more than fold noise, **or** it answers a specific
+   question (a probe). Ties go to the simpler or faster pipeline.
+4. **Post in the team channel:** `SUBMIT REQUEST: <exp id> | val F0.5 <x ± s> | branch <name> | why`. The lead
+   checks the gate, runs `scripts/tag_submission.py` (tag `sub-NN` + ledger row), and the **designated submitter**
+   uploads. Nobody uploads on their own, since one stray upload burns a team slot.
+5. **Blend before you compete:** if your model scores the same candidate pairs, save its pair probabilities with
+   `src.oof.save_oof`. A blend often beats both models, and then it's a joint submission.
+
+Default split (the lead can reallocate):
+| Day | Slots |
+|---|---|
+| 25 Sep | probe · baseline · 2 flex (any teammate's model that passes the gate) · 1 spare |
+| 26 Sep | France probe · 4 flex |
+| 27 Sep | final candidates (by ~18:00 IST) · ≥2 held for fixes only |
+
 ## Communication
 - Discord channel: monitor alerts + short updates. Decisions go in `docs/DECISIONS.md`, not only chat.
 - End of each block (~every 6–8 h): 3-line DAILY_LOG.md entry per person.
