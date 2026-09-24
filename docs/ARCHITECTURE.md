@@ -1,6 +1,14 @@
 # Architecture & roadmap: Business Entity Resolution
 
-Status: **v2, accepted 2026-09-25** (revised after a critical review; see §7). Written before EDA. Items marked *(EDA)* get confirmed or changed once we've
+Status: **v2.1** (v2 accepted 2026-09-25; EDA confirmations below, details in DECISIONS.md).
+
+**EDA confirmed (P0):** one-S1-per-record holds (0 violations) → hard assignment constraint; 0 cross-country pairs →
+block within the `country` string; singletons only 5.6% (mean 3.46 matches/S1) → recall matters; ~24% of India S2/S3
+names are in Indic scripts (Devanagari, Kannada, Telugu, Gujarati) → transliterate everything; some matched names are
+gibberish while the address is intact → **address view is mandatory in blocking and features**; test has more
+S2+S3 per S1 (5.75 vs 4.68).
+
+Original note: Items marked *(EDA)* get confirmed or changed once we've
 measured them. Timings are estimates for the RTX 5080 + 32-thread CPU; confidence is noted per claim.
 
 ## 0. How we see the problem
@@ -34,7 +42,7 @@ measured them. Timings are estimates for the RTX 5080 + 32-thread CPU; confidenc
 
 ### [B] Blocking: maximise recall at a bounded candidate count
 Union of complementary retrievers, each giving top-K:
-1. **Dense (main retriever).** Embed `core name | city` (and a name-only view) with **multilingual-e5**
+1. **Dense (main retriever).** Embed a name view **and an address view** (EDA: names can be gibberish) with **multilingual-e5**
    (MIT; handles Hindi, French and English). About 22M texts at ~5–10k/s in bf16 takes roughly 1–1.5 h on the 5080
    (estimate, medium confidence). **Exact brute-force kNN on the GPU**: keys fit in VRAM (5M × 384 fp16 ≈ 3.8 GB),
    using chunked matmul + top-k, partitioned by the `country` string. Minutes, no approximation.
