@@ -21,6 +21,9 @@ MODELS = {
     "deberta-v3-base": ("microsoft/deberta-v3-base", "MIT", "best-in-class text fine-tuning backbone"),
     "siglip-base": ("google/siglip-base-patch16-224", "Apache-2.0", "image/text embeddings (strong, fast)"),
     "clip-vit-l14": ("openai/clip-vit-large-patch14", "MIT", "classic strong image/text embeddings"),
+    "me5-base": ("intfloat/multilingual-e5-base", "MIT", "multilingual retriever (Hindi/French/English) for blocking"),
+    "me5-small": ("intfloat/multilingual-e5-small", "MIT", "faster multilingual retriever for ~22M records"),
+    "mdeberta-v3-base": ("microsoft/mdeberta-v3-base", "MIT", "multilingual cross-encoder backbone (fine-tune)"),
 }
 WEIGHT_PATTERNS = ["*.json", "*.txt", "*.model", "*.spm", "tokenizer*", "vocab*", "merges*", "*.py"]
 
