@@ -1,8 +1,9 @@
 # CLAUDE.md — Amazon ML Challenge 2026
 
 ## Stakes
-**Goal: finish #1 on the leaderboard, not just place.** Only the top 10 teams reach the Grand Finale
-(7 Oct 2026), and finalists get a shot at Applied Scientist Intern PPIs at Amazon. We have 72 hours,
+**Goal: finish #1 on the leaderboard, not just place.** Top 50 get Applied Scientist Intern PPIs; only the
+top 10 (leaderboard + approach doc) reach the Grand Finale (7 Oct 2026). Being in the top 500 at the 48 h mark
+earns +$100 AWS credits, so get on the leaderboard early. We have 72 hours,
 limited daily submissions, and a limited Claude usage budget, so every decision must maximize expected
 leaderboard gain per hour of GPU time, per submission, and per token. Be rigorous. Verify before
 claiming something works. Never let a silent bug, leakage, or format error cost us a submission.
