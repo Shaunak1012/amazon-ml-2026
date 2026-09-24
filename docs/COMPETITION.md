@@ -3,13 +3,18 @@
 > Fill every **TBD** on Day 1 from the official problem statement/rules. Quote formulas and limits
 > verbatim; link the source. If something is ambiguous, write the ambiguity down and ask organisers.
 
-## Known before Day 1
-- 72-hour ML hackathon. Problem statement + dataset released Day 1; submission by Day 3.
-- Round opens **25 Sep 2026, 00:00 IST**; 72 hours to submit (→ nominally **28 Sep 2026, 00:00 IST** — verify).
-- Deliverables: (1) predictions file in required format, (2) 1–2 page approach document, (3) code/notebooks as a zip.
-- Live public leaderboard. Top 10 teams (leaderboard + approach doc) → virtual Grand Finale on **7 Oct 2026**,
-  presenting to Amazon scientists. Finalists get a shot at Applied Scientist Intern PPIs.
-- Team of 3–4. Registration used AWS Builder Center profile aliases; AWS credits/Free Tier may be available (verify).
+## Known before Day 1 (confirmed 2026-09-24 from the Unstop page and the AWS prep blog; sources at bottom)
+- Stage 2 = 72-hour hackathon, **25–27 Sep 2026**. Problem + dataset on Day 1, build and submit until Day 3.
+  Exact closing time TBD on Day 1 (27 Sep 23:59 or 28 Sep 00:00 IST?). Registration closed; ~89k registered.
+- Deliverables: predictions (a CSV; the grader doesn't need a hosted model), a **1–2 page approach document**, and
+  code/scripts/notebooks as a **zip**.
+- Live leaderboard with team rankings throughout the round.
+- **Top 50 teams get PPIs for Applied Scientist Intern** (results ~**2 Oct 2026**). Top 10 teams (chosen on
+  leaderboard **and** approach doc) present at the virtual **Grand Finale on 7 Oct 2026**.
+- Prizes: ₹1,00,000 (1st), ₹75,000 (2nd), ₹50,000 (3rd); certificates + swag for the top 10 and top 10 women-only teams.
+- Compute credits: **$200 AWS credits per registered participant**; **+$100 for the top 500 teams at the 48-hour
+  mark**, so being on the leaderboard early pays. The organisers' prep blog recommends `us-east-1`.
+- Team of 2–4 with a team leader; cross-college allowed. Each member needs an AWS Builder Center profile alias.
 
 ## Priors from past editions
 | Year | Task | Data | Metric | Notes |
@@ -57,10 +62,17 @@ Sample file: `DATA_DIR/<name>` — validate it with `python -m src.submission va
 | Event | Date/time IST |
 |---|---|
 | Round opens | 25 Sep 2026 00:00 |
-| Submission deadline | TBD |
+| +$100 credits for the top 500 | 48-hour mark (~27 Sep 00:00) |
+| Submission deadline | TBD (27 Sep, time TBD) |
 | Approach doc deadline | TBD |
 | Code zip deadline | TBD |
+| Top-50 (PPI) results | ~2 Oct 2026 |
 | Grand Finale | 7 Oct 2026 (virtual) |
 
 ### Open questions for organisers
 - TBD
+
+### Sources
+- Unstop page: https://unstop.com/hackathons/amazon-ml-challenge-2026-amazon-1743604
+- AWS prep guide (J. Mehrotra, AWS, 21 Sep 2026): https://builder.aws.com/content/3HiM6zDmFrF98fRzOUETnGFDoqz/amazon-ml-challenge-2026-your-complete-prep-guide-with-live-demo
+- Note: a Kaggle dataset named "amazon-ml-challenge-2026" predates the release. It is unofficial; don't use it.
