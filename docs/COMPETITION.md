@@ -107,7 +107,12 @@ before final rankings are confirmed. Code needs proper comments describing the f
   stated (assume 00:00 IST).
 - **Public LB = a subset of test; private LB = the rest.** The final ranking uses the **private** LB (the statement);
   the guidelines say shortlisting uses both leaderboards. Always submit predictions for the full test set.
-- Keep a version history of every submission (our `sub-NN` tags plus `docs/SUBMISSIONS.md`).
+- Keep a version history of every submission (our `sub-NN` tags plus `docs/SUBMISSIONS.md`). The guidelines say
+  "shortlisting will be based on the submitted solutions", and the final source code may be requested later.
+- **Which submission counts (our reading, unconfirmed):** the guidelines tie the artefacts to "the **best solution**
+  submitted by the team" and say evaluation is "based on performance **across both leaderboards**". So the best
+  submission is probably picked, not the last. Query sent to the organisers; until they answer, **every real submission
+  must be one we'd be happy to be ranked on**. Probes (e.g. all-empty) score low, so they won't be taken as "best".
 
 ## Deadlines (IST)
 | Event | Date/time IST |
