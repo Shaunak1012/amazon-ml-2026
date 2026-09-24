@@ -166,6 +166,63 @@ def cmd_validate(a: argparse.Namespace) -> None:
     log(json.dumps({k: res[k] for k in ("chosen", "dev_f05", "dev_f05_by_country", "dev_blocking_recall")}, indent=1))
 
 
+def cmd_predict(a: argparse.Namespace) -> None:
+    """Fit on train S1 (all folds, grouped OOF), tune the threshold on that OOF, predict the full test split."""
+    from src.er_data import dataset_dir
+    from src.er_submission import write_outputs
+
+    t0 = time.time()
+    out_dir = Path(a.out)
+    run_dir = Path("runs") / a.exp
+    run_dir.mkdir(parents=True, exist_ok=True)
+    d = Split("train", a.model)
+    folds = pd.read_parquet(cache_dir() / "folds_s1_k5.parquet").set_index("s1_id").reindex(d.s1.entity_id)
+    rng = np.random.default_rng(42)
+    tr_mask = np.zeros(len(d.s1), bool)
+    tr_mask[rng.choice(len(d.s1), size=a.train_s1, replace=False)] = True
+    pairs = retrieve(d, tr_mask, a.k)
+    X = featurize(d, pairs)
+    truth = set(zip(d.gt.s1_id, d.gt.cand_id))
+    X["y"] = [(s, c) in truth for s, c in zip(X.s1_id, X.cand_id)]
+    log(f"train: {len(X):,} pairs from {tr_mask.sum():,} S1 [{time.time() - t0:.0f}s]")
+    groups = folds.fold.reindex(X.s1_id).to_numpy()
+    oof, models = train_oof(X, X.y.to_numpy().astype(int), groups, {"learning_rate": a.lr},
+                            num_boost_round=a.rounds, early_stopping=50)
+    y_tr = d.truth(d.s1.entity_id[tr_mask])
+    t, f, _ = tune_threshold(X[["s1_id", "cand_id"]].assign(prob=oof), y_tr, assign=True)
+    log(f"fitted {len(models)} models; OOF F0.5 {f:.4f} at threshold {t} [{time.time() - t0:.0f}s]")
+    for i, m in enumerate(models):
+        m.save_model(str(run_dir / f"lgbm_fold{i}.txt"))
+    del d, X, pairs
+
+    te = Split("test", a.model)
+    s1_ids = te.s1.entity_id.to_numpy()
+    cand_parts, prob_parts = [], []
+    for start in range(0, len(te.s1), a.chunk):
+        mask = np.zeros(len(te.s1), bool)
+        mask[start:start + a.chunk] = True
+        tp = retrieve(te, mask, a.k)
+        Xt = featurize(te, tp)
+        prob_parts.append(Xt[["s1_id", "cand_id"]].assign(prob=predict(models, Xt).astype(np.float32)))
+        cand_parts.append(tp[["s1_id", "cand_id"]])
+        log(f"test chunk {start // a.chunk + 1}: {len(tp):,} pairs [{time.time() - t0:.0f}s]")
+    probs = pd.concat(prob_parts, ignore_index=True)
+    probs.to_parquet(run_dir / "test_probs.parquet", index=False)
+    cands = pd.concat(cand_parts, ignore_index=True)
+    matches = decide(probs, t, assign=True)
+    candidates: dict[str, list[str]] = {}
+    for s, c in zip(cands.s1_id.to_numpy(), cands.cand_id.to_numpy()):
+        candidates.setdefault(s, []).append(c)
+    write_outputs(matches, candidates, s1_ids, out_dir, test_dir=dataset_dir() / "test")
+    n_nonempty = sum(1 for v in matches.values() if v)
+    info = {"exp": a.exp, "threshold": t, "train_oof_f05": f, "train_s1": int(a.train_s1), "k": a.k,
+            "test_s1": len(s1_ids), "test_pairs": len(cands), "nonempty_share": n_nonempty / len(s1_ids),
+            "mean_matches": float(np.mean([len(matches.get(s, ())) for s in s1_ids])),
+            "runtime_s": round(time.time() - t0)}
+    (run_dir / "predict.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
+    log(json.dumps(info))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(prog="python -m src.er_pipeline")
     sp = ap.add_subparsers(dest="cmd", required=True)
@@ -176,9 +233,20 @@ def main() -> None:
     v.add_argument("--lr", type=float, default=0.1)
     v.add_argument("--rounds", type=int, default=1000)
     v.add_argument("--model", default="small")
+    pr = sp.add_parser("predict")
+    pr.add_argument("--exp", required=True)
+    pr.add_argument("--out", required=True, help="folder for matching_results.tsv + candidate_pairs.tsv")
+    pr.add_argument("--k", type=int, default=10)
+    pr.add_argument("--train-s1", type=int, default=300_000)
+    pr.add_argument("--chunk", type=int, default=200_000, help="test S1 per chunk (memory)")
+    pr.add_argument("--lr", type=float, default=0.1)
+    pr.add_argument("--rounds", type=int, default=1000)
+    pr.add_argument("--model", default="small")
     a = ap.parse_args()
     if a.cmd == "validate":
         cmd_validate(a)
+    elif a.cmd == "predict":
+        cmd_predict(a)
 
 
 if __name__ == "__main__":
