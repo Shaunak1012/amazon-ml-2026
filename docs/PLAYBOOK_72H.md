@@ -71,6 +71,24 @@ Clock starts at data release (H0 = 25 Sep 2026 00:00 IST). Adjust ±, but never 
 - Post-process to the exact allowed units/format; empty prediction when unsure if FP costs as much as FN.
 - Metric is exact-match: normalize numbers (e.g. "10.0" vs "10"), units, whitespace exactly as the grader expects.
 
+### Entity resolution (2026 task: S1 → S2/S3 business matching, macro F0.5)
+- **EDA questions first:** rows per source; singleton rate; matches per S1 (by source); does one S2/S3 record ever
+  map to more than one S1 (it shouldn't, since S1 is deduplicated); do matches ever cross countries; how noisy are
+  S2 vs S3.
+- **Blocking is the recall ceiling.** Plot recall vs. mean candidates for each retriever and for their union.
+  Record it (the organisers audit `candidate_pairs.tsv` for recall and reduction ratio). Block within the same
+  `country` string only if train shows no cross-country matches, and never hard-code country values.
+- **Pair features:** rapidfuzz (ratio, partial, token_sort, token_set, Jaro-Winkler) on raw, normalised and core
+  name and address; char/word TF-IDF cosine; embedding cosine; number/postal-code equal, conflict or missing;
+  legal-suffix agreement; rank and gap-to-best per S1 and per S2/S3 (reverse rank); S2-vs-S3 flag. **No
+  country-identity features** (France is unseen).
+- **Decision layer:** tune the threshold on OOF for **macro F0.5** (not pair-level F1); keep at most one S1 per
+  S2/S3 record; allow an empty prediction. Optionally pick, per S1, the candidate subset that maximises expected F0.5.
+- **Validation:** GroupKFold by S1, plus leave-one-country-out to estimate the France drop. Trust CV over the public
+  LB (the public LB is only a subset of test).
+- **Upgrades if time allows:** a fine-tuned cross-encoder (MIT/Apache, ≤ 8B) score as an extra feature; S2↔S3
+  consistency (both matched to the same S1 should also match each other); seed/fold bagging.
+
 ### Ranking / retrieval
 - Two-stage: candidate generation (BM25 + dense embeddings) → re-ranker (GBDT with LambdaRank or cross-encoder).
 - CV grouped by query; metric computed per query then averaged. Hard-negative mining for the cross-encoder.
