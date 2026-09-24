@@ -37,7 +37,8 @@ measured them. Timings are estimates for the RTX 5080 + 32-thread CPU; confidenc
   LLC, Inc, SARL/SAS …) and keep the **core name**; split website domains used as names into tokens.
 - Addresses: expand abbreviations. **Learn the abbreviation and state maps from matched pairs in train** (for
   example, which tokens co-occur in matched pairs such as "TX" and "Texas"), which counts as using provided data.
-  Extract house numbers, postcode/PIN, city and landmark phrases.
+  Extract house numbers, postcode/PIN, city and landmark phrases. **Label-derived maps are learned inside each
+  training fold** (never from held-out labels) and refit on all of train for the test run.
 - Pure functions, no country-specific branching (contract in WORKERS.md). **Cloud-able.**
 
 ### [B] Blocking: maximise recall at a bounded candidate count
@@ -69,19 +70,20 @@ Union of complementary retrievers, each giving top-K:
 
 ### [D] Decision layer: optimise the metric directly
 1. **Calibrate** OOF probabilities (isotonic).
-2. **Assignment constraint:** give each S2/S3 record only to its highest-probability S1 *(if EDA confirms records
-   never map to more than one S1)*.
+2. **Assignment constraint:** give each S2/S3 record only to its highest-probability S1 (EDA: 0 violations in
+   7.64M train pairs). Kept **switchable** and ablated on held-out F0.5.
 3. **Per-S1 expected-F0.5-optimal set:** sort candidates by p and evaluate the expected F0.5 of each prefix,
    including the **empty set** (the singleton decision). Choose the best. This is theory-backed (e.g. Jansche 2007;
-   Ye et al. 2012), cheap, and usually worth points over a global threshold. **Cloud-able** (pure maths, easy to
-   unit-test).
+   Ye et al. 2012). **An experiment, not a given:** compared against a global threshold and a threshold + top-1
+   fallback on held-out per-entity F0.5; kept only if it wins by more than fold noise. **Cloud-able** (pure maths).
 4. **France / unseen-country safety:** use leave-one-country-out CV to measure how calibration drifts on an unseen
    country, and apply a correspondingly more conservative margin to country strings not seen in training.
 
 ### Validation
 - Hold out ~10–15% of train S1 (GroupKFold by S1), but **retrieve from the full train S2/S3 pool**. That mimics
   test difficulty (the pools are the same size). Score with the exact `er_f05`.
-- **Leave-one-country-out** (US→India, India→US) as the stand-in for France.
+- **Leave-one-country-out** (US→India, India→US) as a **robustness check** (does the approach lean on known-country
+  patterns?). It is **not** a France score; the only direct France signal is the public-LB France probe.
 - Log CV and public LB for every submission; the private LB decides, so trust CV.
 
 ## 2. Alternatives if part of #1 fails
