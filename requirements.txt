@@ -36,3 +36,4 @@ jellyfish==1.2.1       # phonetic codes (metaphone), Jaro-Winkler
 jupyterlab==4.6.4
 ipykernel==7.3.0
 matplotlib==3.11.2
+tabulate==0.10.0       # markdown tables in EDA reports
