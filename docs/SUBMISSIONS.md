@@ -8,3 +8,4 @@ Gate before each submission (see CLAUDE.md → Submission discipline):
 
 | # | timestamp (IST) | experiment id | git tag | CV | public LB | remaining today | file |
 |---|---|---|---|---|---|---|---|
+| 1 | 2026-09-25 00:51 IST | P0-probe-empty | `sub-01` | n/a (probe; train singleton rate 0.0558) |  | 4 | sub01_empty |
