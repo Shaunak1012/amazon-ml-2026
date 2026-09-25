@@ -20,7 +20,7 @@ France-emptied 0.821 (France ≈ 0.89), France-strict 0.949822. Slots: 0 left on
 → prints dev recall gain (`scripts/recall_gain.py --view both --tag ft --k 10 20`). Check with:
 `ls runs/E014-*; cat runs/E014-bienc-train/exit.json; tail runs/E014-bienc-embed-train/train.log`.
 
-**Decision pending:** if the ft view lifts dev union recall well above 0.9740 (e.g. 0.985+), do the full rebuild:
+**E014 RESULT (22:42): ft view dev recall alone top-10 = 0.9959; union 0.9740 -> 0.9976 (recovers 90.7% of misses). DO THE REBUILD.** Test embedding with the ft model was started from the old session (check `runs/E014-bienc-embed-test/exit.json`; files `data/cache/emb/test_s*_both_ft.npy`). Rebuild steps:
 1. embed TEST with the ft model (`python -m src.er_embed --split test --sources 1 2 3 --view both --model runs/E014-bienc/model --tag ft`);
 2. stage 1 over the full population with the ft view added (needs a `--views` option in `src/er_fullpass.py` stage1 and
    `Split(views=...)`; ft files use suffix `ft`, so Split must map view→suffix, e.g. views name/addr/both(small)+both(ft));
