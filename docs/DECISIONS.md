@@ -2,6 +2,18 @@
 
 Newest first. Each entry: what we chose, what else we considered, why — in plain language.
 
+## 2026-09-25 — Cross-S1 ("competition") features must be computed over the FULL population
+- **Found:** E005's second stage gained +0.0071 on dev, mostly from "margin over the record's best competing S1".
+  But in validation only the *sampled* S1s competed (dev: 31% of records had 2+ competing S1s, 1.5 lists per record),
+  while on test **all** 1.73M S1s compete (87% of records, 9.0 lists per record). That's a train/test distribution
+  mismatch in the dominant feature, so E005/E006 dev gains don't transfer to test as measured.
+- **Chose:** run stage 1 over **every** S1 in train (out-of-fold by fold) and test, keep the top-15 candidates per S1,
+  and compute all cross-S1 features over the full population in every split. Re-validate stage 2 in that regime.
+- **Alternatives:** record-side reverse kNN on cosine only (cheaper, but loses the probability signal); dropping the
+  competition features (loses the biggest gain).
+- **Why:** features must mean the same thing on train, dev and test. sub-02 (stage 1 only) is largely unaffected:
+  its cross-S1 context features came from a 300k-S1 training sample (14% of S1s) vs 200k-S1 test chunks (12%).
+
 ## 2026-09-25 — Teammate review of the architecture: accepted changes
 1. **One-S1-per-record is evidence-based, but still ablated.** Train shows 0 records mapped to >1 S1 in 7.64M pairs.
    It's still a train-set fact, not a stated rule, so the decision layer keeps it **switchable** and we report
