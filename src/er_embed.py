@@ -72,20 +72,22 @@ class Encoder:
         return out
 
 
-def embed_file(split: str, k: int, view: str, model: str, chunk: int = 1_000_000, batch: int = 1024) -> Path:
+def embed_file(split: str, k: int, view: str, model: str, chunk: int = 1_000_000, batch: int = 1024,
+               tag: str | None = None) -> Path:
     """Embed one source file in resumable chunks, then concatenate. Writes a heartbeat for monitor.watch."""
     from monitor import Heartbeat
 
     df = pd.read_parquet(cache_dir() / f"{split}_s{k}.parquet", columns=["business_name", "business_address"])
-    final = emb_dir() / f"{split}_s{k}_{view}_{model}.npy"
+    tag = tag or model   # filename suffix; use --tag for models loaded from a folder
+    final = emb_dir() / f"{split}_s{k}_{view}_{tag}.npy"
     if final.exists():
         print(f"exists: {final.name}")
         return final
-    parts_dir = emb_dir() / f".parts_{split}_s{k}_{view}_{model}"
+    parts_dir = emb_dir() / f".parts_{split}_s{k}_{view}_{tag}"
     parts_dir.mkdir(exist_ok=True)
     enc = Encoder(model)
     n_chunks = (len(df) + chunk - 1) // chunk
-    run_id = os.environ.get("RUN_ID", f"embed-{split}-s{k}-{view}-{model}")
+    run_id = os.environ.get("RUN_ID", f"embed-{split}-s{k}-{view}-{tag}")
     with Heartbeat(run_id, total_steps=n_chunks, every_steps=1, metric_name="rows/s") as hb:
         for c in range(n_chunks):
             part = parts_dir / f"{c:04d}.npy"
@@ -131,14 +133,15 @@ def main() -> None:
     ap.add_argument("--split", default="train")
     ap.add_argument("--sources", nargs="+", type=int, default=[1, 2, 3])
     ap.add_argument("--view", default="name", choices=list(MAX_LEN))
-    ap.add_argument("--model", default="small", choices=list(MODELS))
+    ap.add_argument("--model", default="small", help="small | base | path to a fine-tuned model folder")
+    ap.add_argument("--tag", default=None, help="output filename suffix (default: the model key)")
     ap.add_argument("--batch", type=int, default=1024)
     a = ap.parse_args()
     if a.bench:
         bench()
         return
     for k in a.sources:
-        embed_file(a.split, k, a.view, a.model, batch=a.batch)
+        embed_file(a.split, k, a.view, a.model, batch=a.batch, tag=a.tag)
 
 
 if __name__ == "__main__":
