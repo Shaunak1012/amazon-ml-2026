@@ -31,6 +31,10 @@ CODE_PREFIX = "code/business_entity_resolution"
 CODE_DIRS = ("src/", "configs/", "scripts/", "monitor/", "tests/")
 CODE_FILES = ("requirements.txt", "requirements-core.txt", "pyproject.toml", ".env.example")
 MAX_FILE_MB = 20
+# Dev-only tooling that makes network calls (image downloader, Discord alerts). Not used by the pipeline; kept out
+# of submission zips so reviewers see a pipeline with zero network access (organiser rule: no external data).
+EXCLUDE = {"src/images.py", "tests/test_images.py", "monitor/notify.py", "monitor/watch.py", "monitor/demo.py",
+           "tests/test_monitor.py", "scripts/prefetch_models.py"}
 
 
 def git(*args: str) -> str:
@@ -45,7 +49,7 @@ def code_only(ref: str, out_dir: str) -> int:
     """Zip the code as it exists at `ref` (a sub-NN tag), in the organisers' code/ layout."""
     sha = git("rev-parse", "--short", f"{ref}^{{commit}}")
     files = [f for f in git("ls-tree", "-r", "--name-only", ref).splitlines()
-             if f.startswith(CODE_DIRS) or f in CODE_FILES]
+             if (f.startswith(CODE_DIRS) or f in CODE_FILES) and f not in EXCLUDE]
     if any(Path(f).name == ".env" for f in files):
         print("ERROR: .env tracked at this ref")
         return 1
@@ -99,7 +103,7 @@ def main() -> int:
 
     # code (and its README) come from the git ref, so the zip matches the tagged submission exactly
     tracked = git("ls-tree", "-r", "--name-only", a.ref).splitlines()
-    files = [f for f in tracked if f.startswith(CODE_DIRS) or f in CODE_FILES]
+    files = [f for f in tracked if (f.startswith(CODE_DIRS) or f in CODE_FILES) and f not in EXCLUDE]
     if any(Path(f).name == ".env" for f in files):
         print("ERROR: .env is tracked at this ref")
         return 1
