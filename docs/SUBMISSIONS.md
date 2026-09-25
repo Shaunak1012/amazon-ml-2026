@@ -12,3 +12,4 @@ Gate before each submission (see CLAUDE.md → Submission discipline):
 | 2 | 2026-09-25 04:58 IST | E004-predict-sub02 | `sub-02` | 0.9476 dev / 0.9487 OOF | **FAILED at portal evaluation** (file re-verified: passes organiser validator --check-ids + independent checker) | ? | sub02_E004 |
 | 3 | 2026-09-25 17:07 IST | E009-stage2-noce | `sub-03` | 0.9643 dev / 0.9618 OOF |  | ? | sub03_E009 |
 | 4 | 2026-09-25 17:38 IST | probe-france-empty-of-sub03 | `sub-04` | probe (sub-03 with france emptied) |  | ? | probe_france_sub03 |
+| 5 | 2026-09-25 17:38 IST | probe-india-empty-of-sub03 | `sub-05` | probe (sub-03 with india emptied) |  | ? | probe_india_sub03 |
