@@ -10,3 +10,4 @@ Gate before each submission (see CLAUDE.md → Submission discipline):
 |---|---|---|---|---|---|---|---|
 | 1 | 2026-09-25 00:51 IST | P0-probe-empty | `sub-01` | n/a (probe; train singleton rate 0.0558) |  | 4 | sub01_empty |
 | 2 | 2026-09-25 04:58 IST | E004-predict-sub02 | `sub-02` | 0.9476 dev / 0.9487 OOF | **FAILED at portal evaluation** (file re-verified: passes organiser validator --check-ids + independent checker) | ? | sub02_E004 |
+| 3 | 2026-09-25 17:07 IST | E009-stage2-noce | `sub-03` | 0.9643 dev / 0.9618 OOF |  | ? | sub03_E009 |
