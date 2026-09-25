@@ -129,11 +129,16 @@ def main() -> None:
     p(f"- Jaro-Winkler: p10 {np.percentile(jw, 10):.3f}, median {np.median(jw):.3f}")
     by_src = pd.DataFrame({"src": samp.cand_id.str[:2].to_numpy(), "tsr": tsr, "country": n1.country.to_numpy()})
     table(by_src.groupby(["country", "src"]).tsr.describe()[["mean", "25%", "50%"]])
-    # negatives for contrast: random S1 paired with a random same-country record
+    # negatives for contrast: sampled S1 names vs RANDOM S2/S3 records of the SAME country (matched or not)
     rng = np.random.default_rng(0)
-    idx = rng.integers(0, len(oth), size=50_000)
-    tsr_neg = np.array([token_set_ratio(x, y) for x, y in zip(a[:50_000], b[idx])])
-    p(f"- random same-sample negatives token_set_ratio: median {np.median(tsr_neg):.0f}, p90 {np.percentile(tsr_neg, 90):.0f}")
+    pool = pd.concat([s2, s3])[["business_name", "country"]]
+    neg_a, neg_b = [], []
+    for c, g in n1.head(50_000).groupby("country"):
+        cand = pool.business_name[pool.country == c].to_numpy()
+        neg_a += g.business_name.str.lower().tolist()
+        neg_b += [x.lower() for x in cand[rng.integers(0, len(cand), size=len(g))]]
+    tsr_neg = np.array([token_set_ratio(x, y) for x, y in zip(neg_a, neg_b)])
+    p(f"- random same-country negatives token_set_ratio: median {np.median(tsr_neg):.0f}, p90 {np.percentile(tsr_neg, 90):.0f}")
 
     # ---------------------------------------------------------------- addresses
     h("6. Addresses")
