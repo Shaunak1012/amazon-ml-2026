@@ -18,7 +18,11 @@ mid-way should catch up in 2 minutes. Also keep the GPU queue current.
 - **Learned:** (1) cross-S1 features must be computed over the full population (sampling bias fixed in E007).
   (2) France (unseen) was the weak spot (~0.89) due to false merges; the cross-encoder fixes most of it.
   (3) dev→LB gap on US+India ~ -0.005.
-- **Next (Day 2):** France probe on sub-06; error analysis of E010 dev; multi-key/char-ngram blocking for the 2.6%
+- **Evening:** E011 (two fold-disjoint cross-encoders + stage 2 on all folds) = dev 0.9841, **no gain** over E010 (0.9840):
+  the matcher is saturating. Rank 53 (top-50 = PPI cut).
+- **Next (Day 2):** save stage-2 dev predictions → error analysis → recall work (multi-key + char n-gram blocking;
+  oracle ceiling with current candidates 0.9915) → France probe on the best model.
+- (earlier plan) France probe on sub-06; error analysis of E010 dev; multi-key/char-ngram blocking for the 2.6%
   never retrieved; stronger cross-encoder (2-fold CE on all training folds, more pairs); final refit on all folds.
 
 ## 2026-09-24 (pre-launch)
