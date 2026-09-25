@@ -163,6 +163,12 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     feat = Xtr.drop(columns=["prob"])
     feat["s1_prob"] = Xtr.prob.to_numpy()
     groups = folds.fold.reindex(Xtr.s1_id).to_numpy()
+    if len(np.unique(groups)) < 2:
+        # single fit fold (e.g. --fit-folds 3 so CE scores are out-of-sample): OOF needs >= 2 groups,
+        # so split its S1s into 4 random internal groups (still grouped by S1, no pair leakage)
+        ids = pd.Index(Xtr.s1_id.unique())
+        g = pd.Series(np.random.default_rng(0).integers(0, 4, len(ids)), index=ids)
+        groups = g.reindex(Xtr.s1_id).to_numpy()
     oof, models = train_oof(feat, Xtr.y.to_numpy().astype(int), groups, {"learning_rate": a.lr},
                             num_boost_round=a.rounds, early_stopping=50)
     fdev = Xdev.drop(columns=["prob"])
