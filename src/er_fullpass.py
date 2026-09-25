@@ -120,12 +120,51 @@ def with_ce(chunks: list[pd.DataFrame], ce_dir: str, split: str) -> list[pd.Data
     return out
 
 
+def name_rarity(split_obj: Split) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Label-free name-rarity signals per record, computed over the whole split (S1 and S2+S3 separately).
+
+    Error analysis (E010 dev): many remaining errors are candidates with an EMPTY address, where only the name can
+    decide; a unique name is almost surely a match, a common one is ambiguous. Pool counts are normalised by the
+    pool/S1 size ratio per country, because test has ~23% more S2+S3 records per S1 than train.
+    Returns (left_feats indexed by S1 id, right_feats indexed by S2/S3 id).
+    """
+    L, R = split_obj.left, split_obj.right
+    lk = L.country.astype(str) + "|" + L.name_core.astype(str)
+    rk = R.country.astype(str) + "|" + R.name_core.astype(str)
+    s1_cnt, pool_cnt = lk.value_counts(), rk.value_counts()
+    ratio = (R.country.value_counts() / L.country.value_counts()).fillna(1.0)
+    # rarest core token of each record: document frequency over S1 + pool within the country
+    toks = pd.concat([L[["country", "name_core"]], R[["country", "name_core"]]])
+    ex = toks.assign(tok=toks.name_core.str.split()).explode("tok").dropna(subset=["tok"])
+    df = (ex.country.astype(str) + "|" + ex.tok.astype(str)).value_counts()
+
+    def min_df(frame: pd.DataFrame) -> np.ndarray:
+        e = frame.assign(tok=frame.name_core.str.split()).explode("tok")
+        v = (e.country.astype(str) + "|" + e.tok.astype(str)).map(df).fillna(0.0)
+        return v.groupby(level=0, sort=False).min().reindex(frame.index).to_numpy(np.float32)
+
+    lr = ratio.reindex(L.country).to_numpy()
+    rr = ratio.reindex(R.country).to_numpy()
+    left = pd.DataFrame({
+        "rar_s1_same_name_s1": lk.map(s1_cnt).to_numpy(np.float32),
+        "rar_s1_same_name_pool": (lk.map(pool_cnt).fillna(0).to_numpy() / lr).astype(np.float32),
+        "rar_s1_min_tok_df": min_df(L),
+    }, index=L.index)
+    right = pd.DataFrame({
+        "rar_c_same_name_pool": (rk.map(pool_cnt).to_numpy() / rr).astype(np.float32),
+        "rar_c_same_name_s1": rk.map(s1_cnt).fillna(0).to_numpy(np.float32),
+        "rar_c_min_tok_df": min_df(R),
+    }, index=R.index)
+    return left, right
+
+
 def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | None) -> pd.DataFrame:
     """Stage-2 design matrix: sibling feats per chunk (chunks partition S1) + competition feats over ALL chunks."""
     allp = pd.concat([c[["s1_id", "cand_id", "prob"]] for c in chunks], ignore_index=True)
     comp = competition_features(allp)
     parts, off = [], 0
     emb = {v: split_obj.embp[v] for v in split_obj.views}
+    rl, rr = name_rarity(split_obj)
     for c in chunks:
         n = len(c)
         sel = np.ones(n, bool) if keep_s1 is None else c.s1_id.isin(keep_s1).to_numpy()
@@ -134,6 +173,8 @@ def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | N
             F = cluster_features(cs[["s1_id", "cand_id", "prob"]], split_obj.right, emb)
             for k in COMP:
                 F[k] = comp[k][off:off + n][sel]
+            F = pd.concat([F, rl.reindex(cs.s1_id).reset_index(drop=True),
+                           rr.reindex(cs.cand_id).reset_index(drop=True)], axis=1)
             parts.append(pd.concat([cs, F], axis=1))
         off += n
     return pd.concat(parts, ignore_index=True)
