@@ -12,7 +12,7 @@ mid-way should catch up in 2 minutes. Also keep the GPU queue current.
 **Leaderboard:** best = sub-06 **0.975154** (rank 53; #1 = 0.986955; top-50 = PPI cut). Probes: sub-03 0.947598,
 France-emptied 0.821 (France ≈ 0.89), France-strict 0.949822. Slots: 0 left on 25 Sep; **5 fresh on 26 Sep**.
 
-**Ready to upload after midnight:** `submissions/sub_E013_rarity/matching_results.tsv` = tag **sub-07**
+**sub-07 uploaded 26 Sep 00:0x → LB 0.975726 (new best, +0.00057 vs sub-06); 4 slots left on 26 Sep.** Was: `submissions/sub_E013_rarity/matching_results.tsv` = tag **sub-07**
 (E013: sub-06 + name-rarity features, dev F0.5 0.9844; both validators pass). Expected LB ~0.9755.
 
 **Running now (from the old chat session; keep that window open until it finishes):**

@@ -15,7 +15,7 @@ We'll replace this paragraph with a description of the approach once the task is
 ## Current best
 | | Local CV | Public LB | Experiment | Tag |
 |---|---|---|---|---|
-| Best | 0.9840 (dev F0.5) | **0.975154** | E010 (two-stage LightGBM + cross-encoder) | `sub-06` |
+| Best | 0.9844 (dev F0.5) | **0.975726** | E013 (two-stage LightGBM + cross-encoder + name rarity) | `sub-07` |
 
 ## Quick start
 ```bash
