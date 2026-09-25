@@ -197,6 +197,26 @@ def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | N
     return pd.concat(parts, ignore_index=True)
 
 
+def stage3_features(split_obj: Split, P: pd.DataFrame, block: int = 200_000) -> pd.DataFrame:
+    """Sibling/anchor features recomputed from STAGE-2 probabilities (better anchors than stage 1), prefixed t3_.
+
+    Per-S1 only: the record-level competition columns are dropped, because stage-2 probabilities exist for a subset
+    of train S1s but for every test S1, so a cross-S1 feature would mean different things on train and test
+    (docs/DECISIONS.md 2026-09-25). P rows must keep all candidates of each S1 together; computed in S1 blocks.
+    """
+    P = P[["s1_id", "cand_id", "prob"]].reset_index(drop=True)
+    emb = {v: split_obj.embp[v] for v in split_obj.views}
+    codes, uniq = pd.factorize(P.s1_id)
+    parts = []
+    for b0 in range(0, len(uniq), block):
+        rows = np.flatnonzero((codes >= b0) & (codes < b0 + block))
+        F = cluster_features(P.iloc[rows], split_obj.right, emb).drop(columns=list(COMP))
+        F.index = rows
+        parts.append(F)
+    F = pd.concat(parts).sort_index()
+    return F.rename(columns=lambda c: "t3_" + c.removeprefix("s2_")).reset_index(drop=True)
+
+
 def cmd_stage2(a: argparse.Namespace) -> None:
     from src.er_data import dataset_dir
     from src.er_submission import write_outputs
@@ -245,6 +265,23 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     pred = apply_decision(p_dev, rule, t)
     res["dev_by_country"] = {c: er_fbeta_macro({k: v for k, v in y_dev.items() if ctry[k] == c}, pred)
                              for c in ("US", "India")}
+    models3 = None
+    if a.stage3:
+        # stage 3: same frame + anchors re-picked with stage-2 probs (train: OOF, same S1 groups -> no leakage)
+        f3 = pd.concat([feat.reset_index(drop=True), stage3_features(d, p_tr)], axis=1)
+        f3dev = pd.concat([fdev.reset_index(drop=True), stage3_features(d, p_dev)], axis=1)
+        oof3, models3 = train_oof(f3, Xtr.y.to_numpy().astype(int), groups, {"learning_rate": a.lr},
+                                  num_boost_round=a.rounds, early_stopping=50)
+        p_tr3 = Xtr[["s1_id", "cand_id"]].assign(prob=oof3)
+        p_dev3 = Xdev[["s1_id", "cand_id"]].assign(prob=predict(models3, f3dev))
+        rule3, t3, f3oof = choose_decision(p_tr3, y_tr)
+        pred3 = apply_decision(p_dev3, rule3, t3)
+        res.update({"stage3_rule": rule3, "stage3_t": t3, "stage3_oof": f3oof,
+                    "stage3_dev_f05": er_fbeta_macro(y_dev, pred3),
+                    "stage3_dev_by_country": {c: er_fbeta_macro({k: v for k, v in y_dev.items() if ctry[k] == c}, pred3)
+                                              for c in ("US", "India")}})
+        p_dev3.to_parquet(rd / f"dev_stage3_{a.tag or 'last'}.parquet", index=False)
+        rule, t = rule3, t3                             # --stage3: the test run uses stage 3
     log(json.dumps(res))
     (rd / "stage2.json").write_text(json.dumps(res, indent=2), encoding="utf-8")
     del d, X, Xtr, Xdev
@@ -256,6 +293,11 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     ft["s1_prob"] = Xt.prob.to_numpy()
     probs = Xt[["s1_id", "cand_id"]].assign(prob=predict(models, ft).astype(np.float32))
     probs.to_parquet(rd / "test_probs_stage2.parquet", index=False)
+    if models3 is not None:
+        ft3 = pd.concat([ft.reset_index(drop=True), stage3_features(te, probs)], axis=1)
+        probs = Xt[["s1_id", "cand_id"]].assign(prob=predict(models3, ft3).astype(np.float32))
+        probs.to_parquet(rd / "test_probs_stage3.parquet", index=False)
+        del ft3
     matches = apply_decision(probs, rule, t)
     cands: dict[str, list[str]] = {}
     for s, c in zip(probs.s1_id.to_numpy(), probs.cand_id.to_numpy()):
@@ -293,6 +335,8 @@ def main() -> None:
     s2.add_argument("--ce-dir", default="", help="run dir with train_ce/ and test_ce/ score parquets")
     s2.add_argument("--out", default="")
     s2.add_argument("--tag", default="", help="suffix for saved dev predictions (dev_stage2_<tag>.parquet)")
+    s2.add_argument("--stage3", action="store_true",
+                    help="refit once with anchors re-picked from stage-2 probs; the test run then uses stage 3")
     a = ap.parse_args()
     {"stage1": cmd_stage1, "stage2": cmd_stage2}[a.cmd](a)
 
