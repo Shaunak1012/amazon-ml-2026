@@ -100,6 +100,11 @@ def featurize(d: Split, pairs: pd.DataFrame) -> pd.DataFrame:
     return build_features(pairs, d.left, d.right, emb)
 
 
+def topk_mask(p: pd.DataFrame, k: int) -> np.ndarray:
+    """Boolean mask of the top-k rows per S1 by probability (ties broken by order)."""
+    return (p.groupby("s1_id", sort=False).prob.rank(ascending=False, method="first") <= k).to_numpy()
+
+
 def evaluate_strategies(p_tr: pd.DataFrame, y_tr: dict, p_dev: pd.DataFrame, y_dev: dict) -> dict:
     """Tune each decision strategy on TRAINING OOF, then score it once on dev."""
     res = {}
@@ -169,6 +174,13 @@ def cmd_validate(a: argparse.Namespace) -> None:
         res["stage1_dev_f05"] = er_fbeta_macro(y_dev, decide(p_dev, t1, True))
         log(f"stage 1: dev F0.5 {res['stage1_dev_f05']:.4f} (t={t1})")
         t = time.time()
+        if a.prefilter:
+            # keep top-k candidates per S1 by stage-1 prob (dev: top-15 keeps 99.99% of retrieved true pairs)
+            m_tr, m_dev = topk_mask(p_tr, a.prefilter), topk_mask(p_dev, a.prefilter)
+            Xtr, p_tr, groups = Xtr[m_tr].reset_index(drop=True), p_tr[m_tr].reset_index(drop=True), groups[m_tr]
+            Xdev, p_dev = Xdev[m_dev].reset_index(drop=True), p_dev[m_dev].reset_index(drop=True)
+            res["prefilter"] = a.prefilter
+            log(f"prefilter top-{a.prefilter}: train {len(Xtr):,} pairs, dev {len(Xdev):,} pairs")
         emb_r = {v: d.embp[v] for v in d.views}
         F_tr = cluster_features(p_tr, d.right, emb_r)
         F_dev = cluster_features(p_dev, d.right, emb_r)
@@ -274,6 +286,7 @@ def main() -> None:
     v.add_argument("--lr", type=float, default=0.1)
     v.add_argument("--rounds", type=int, default=1000)
     v.add_argument("--stage2", action="store_true", help="add second-stage cluster features (E005)")
+    v.add_argument("--prefilter", type=int, default=0, help="stage 2 on top-k stage-1 candidates per S1 (0 = all)")
     v.add_argument("--model", default="small")
     pr = sp.add_parser("predict")
     pr.add_argument("--exp", required=True)
