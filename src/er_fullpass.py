@@ -103,6 +103,23 @@ def load_chunks(rd: Path, name: str, columns=None) -> list[pd.DataFrame]:
     return [pd.read_parquet(p, columns=columns) for p in sorted((rd / f"{name}_chunks").glob("*.parquet"))]
 
 
+def with_ce(chunks: list[pd.DataFrame], ce_dir: str, split: str) -> list[pd.DataFrame]:
+    """Attach cross-encoder scores (src.er_crossenc score output: one parquet per chunk, same row order)."""
+    if not ce_dir:
+        return chunks
+    files = sorted((Path(ce_dir) / f"{split}_ce").glob("*.parquet"))
+    if len(files) != len(chunks):
+        raise ValueError(f"{len(files)} CE files for {len(chunks)} {split} chunks in {ce_dir}")
+    out = []
+    for c, f in zip(chunks, files):
+        ce = pd.read_parquet(f)
+        if len(ce) != len(c) or not (ce.s1_id.to_numpy() == c.s1_id.to_numpy()).all() \
+                or not (ce.cand_id.to_numpy() == c.cand_id.to_numpy()).all():
+            raise ValueError(f"CE rows misaligned with {f.name}")
+        out.append(c.assign(ce_score=ce.ce_score.to_numpy(np.float32)))
+    return out
+
+
 def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | None) -> pd.DataFrame:
     """Stage-2 design matrix: sibling feats per chunk (chunks partition S1) + competition feats over ALL chunks."""
     allp = pd.concat([c[["s1_id", "cand_id", "prob"]] for c in chunks], ignore_index=True)
@@ -131,9 +148,10 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     d = Split("train", a.model)
     folds = pd.read_parquet(cache_dir() / "folds_s1_k5.parquet").set_index("s1_id")
     rng = np.random.default_rng(7)
-    fit_ids = set(rng.choice(folds.index[folds.fold != 0].to_numpy(), size=a.train_s1, replace=False))
+    pool = folds.index[folds.fold.isin(a.fit_folds)].to_numpy()   # e.g. 3 4 when the CE trained on folds 1-2
+    fit_ids = set(rng.choice(pool, size=min(a.train_s1, len(pool)), replace=False))
     dev_ids = set(folds.index[folds.dev])
-    X = stage2_frames(d, load_chunks(rd, "train"), fit_ids | dev_ids)
+    X = stage2_frames(d, with_ce(load_chunks(rd, "train"), a.ce_dir, "train"), fit_ids | dev_ids)
     log(f"stage-2 frame {X.shape} [{time.time() - t0:.0f}s]")
     is_dev = X.s1_id.isin(dev_ids).to_numpy()
     Xtr, Xdev = X[~is_dev].reset_index(drop=True), X[is_dev].reset_index(drop=True)
@@ -164,7 +182,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     if not a.out:
         return
     te = Split("test", a.model)
-    Xt = stage2_frames(te, load_chunks(rd, "test"), None)
+    Xt = stage2_frames(te, with_ce(load_chunks(rd, "test"), a.ce_dir, "test"), None)
     ft = Xt.drop(columns=["prob"])
     ft["s1_prob"] = Xt.prob.to_numpy()
     probs = Xt[["s1_id", "cand_id"]].assign(prob=predict(models, ft).astype(np.float32))
@@ -198,6 +216,8 @@ def main() -> None:
     s1.add_argument("--max-s1", type=int, default=0, help="score only the first N S1 per split (smoke test)")
     s2 = sp.choices["stage2"]
     s2.add_argument("--train-s1", type=int, default=300_000)
+    s2.add_argument("--fit-folds", type=int, nargs="+", default=[1, 2, 3, 4], help="folds whose S1s fit stage 2 (use 3 4 if the CE trained on folds 1-2)")
+    s2.add_argument("--ce-dir", default="", help="run dir with train_ce/ and test_ce/ score parquets")
     s2.add_argument("--out", default="")
     a = ap.parse_args()
     {"stage1": cmd_stage1, "stage2": cmd_stage2}[a.cmd](a)
