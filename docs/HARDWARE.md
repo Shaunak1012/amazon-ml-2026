@@ -7,7 +7,11 @@
 | RAM | 64 GB | 75k–500k-row tabular/text fits easily; cache image tensors/embeddings to disk (npy/parquet) |
 | OS | Windows 11 Pro (native, **WSL not installed**, **Smart App Control ON**) — detected 2026-09-24 | see below |
 
-## ⚠️ Smart App Control (SAC) — blocks ML DLLs on this machine
+## Smart App Control (SAC) — turned OFF by the owner on 2026-09-25 (was blocking fresh DLLs)
+Update: with SAC off, a clean venv from `requirements-core.txt` passes the suite (66 passed, 2 GPU-only skipped).
+Pinned versions are kept anyway (they're verified). Re-enable SAC after the event (reversible on this build).
+
+### History
 Detected 2026-09-24: `torch 2.11.0+cu128` failed with *"An Application Control policy has blocked this file … torch.dll"*;
 `pandas 3.0.x` was blocked the same way. **Working pins (verified):** `torch 2.8.0+cu128`, `pandas 2.3.3`,
 `bitsandbytes 0.50.2` (8-bit AdamW OK natively). SAC blocks unsigned native code without cloud reputation, so brand-new
