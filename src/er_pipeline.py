@@ -25,6 +25,7 @@ from src.er_decide import decide, decide_expected_f, tune_threshold
 from src.er_embed import emb_dir
 from src.er_features import build_features
 from src.er_model import importance, predict, train_oof
+from src.er_stage2 import cluster_features
 from src.metrics import er_fbeta_macro
 
 VIEWS = ("name", "addr", "both")
@@ -162,6 +163,23 @@ def cmd_validate(a: argparse.Namespace) -> None:
     p_tr = Xtr[["s1_id", "cand_id"]].assign(prob=oof)
     p_dev = Xdev[["s1_id", "cand_id"]].assign(prob=predict(models, Xdev))
     y_tr, y_dev = d.truth(tr_ids_s), d.truth(dev_ids_s)
+    if a.stage2:
+        # stage-1 dev score for the record, then a second LightGBM on stage-1 features + cluster features
+        t1, _, _ = tune_threshold(p_tr, y_tr, assign=True)
+        res["stage1_dev_f05"] = er_fbeta_macro(y_dev, decide(p_dev, t1, True))
+        log(f"stage 1: dev F0.5 {res['stage1_dev_f05']:.4f} (t={t1})")
+        t = time.time()
+        emb_r = {v: d.embp[v] for v in d.views}
+        F_tr = cluster_features(p_tr, d.right, emb_r)
+        F_dev = cluster_features(p_dev, d.right, emb_r)
+        X2_tr = pd.concat([Xtr.reset_index(drop=True), F_tr], axis=1)
+        X2_dev = pd.concat([Xdev.reset_index(drop=True), F_dev], axis=1)
+        log(f"cluster features {F_tr.shape[1]} [{time.time() - t:.0f}s]")
+        oof, models = train_oof(X2_tr, X2_tr.y.to_numpy().astype(int), groups,
+                                {"learning_rate": a.lr}, num_boost_round=a.rounds, early_stopping=50)
+        p_tr = X2_tr[["s1_id", "cand_id"]].assign(prob=oof)
+        p_dev = X2_dev[["s1_id", "cand_id"]].assign(prob=predict(models, X2_dev))
+        log(f"stage 2 trained [{time.time() - t:.0f}s]")
     res["strategies"] = evaluate_strategies(p_tr, y_tr, p_dev, y_dev)
     best = max(res["strategies"].items(), key=lambda kv: kv[1]["train_oof"])
     res["chosen"] = best[0]
@@ -255,6 +273,7 @@ def main() -> None:
     v.add_argument("--train-s1", type=int, default=200_000)
     v.add_argument("--lr", type=float, default=0.1)
     v.add_argument("--rounds", type=int, default=1000)
+    v.add_argument("--stage2", action="store_true", help="add second-stage cluster features (E005)")
     v.add_argument("--model", default="small")
     pr = sp.add_parser("predict")
     pr.add_argument("--exp", required=True)
