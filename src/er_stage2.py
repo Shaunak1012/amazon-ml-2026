@@ -20,6 +20,19 @@ def _pairwise(a, b, scorer) -> np.ndarray:
     return (process.cpdist(a, b, scorer=scorer, workers=-1) / 100.0).astype(np.float32)
 
 
+def competition_features(P: pd.DataFrame) -> dict[str, np.ndarray]:
+    """For each pair: the best probability its candidate record has with any OTHER S1, and the margin over it.
+    Needs every S1 that retrieved the record, so compute it over all pairs, not per chunk of S1s."""
+    prob = P.prob.to_numpy(np.float32)
+    gc = P.groupby("cand_id", sort=False).prob
+    top1 = gc.transform("max").to_numpy(np.float32)
+    r = gc.rank(ascending=False, method="first").to_numpy()
+    second = P.loc[r == 2, ["cand_id", "prob"]].set_index("cand_id").prob
+    top2 = P.cand_id.map(second).fillna(0.0).to_numpy(np.float32)
+    other_best = np.where(r == 1, top2, top1).astype(np.float32)
+    return {"s2_other_s1_best": other_best, "s2_margin_vs_other_s1": (prob - other_best).astype(np.float32)}
+
+
 def cluster_features(P: pd.DataFrame, right: pd.DataFrame, emb_right: dict, n_anchors: int = 3,
                      anchor_min: float = 0.5, step: int = 1_000_000) -> pd.DataFrame:
     """Per-pair features from the S1's other candidates and the record's other S1s."""
@@ -34,15 +47,7 @@ def cluster_features(P: pd.DataFrame, right: pd.DataFrame, emb_right: dict, n_an
         "s2_n_conf90_s1": P.assign(_c=prob >= 0.9).groupby("s1_id", sort=False)._c.transform("sum").to_numpy(np.float32),
         "s2_sum_prob_s1": g1.transform("sum").to_numpy(np.float32),
     }
-    # the record's competition: best probability this candidate has with any OTHER S1
-    gc = P.groupby("cand_id", sort=False).prob
-    top1 = gc.transform("max").to_numpy(np.float32)
-    r = gc.rank(ascending=False, method="first").to_numpy()
-    second = P.assign(_r=r).query("_r == 2").set_index("cand_id").prob
-    top2 = P.cand_id.map(second).fillna(0.0).to_numpy(np.float32)
-    other_best = np.where(r == 1, top2, top1)
-    out["s2_other_s1_best"] = other_best
-    out["s2_margin_vs_other_s1"] = prob - other_best
+    out.update(competition_features(P))
 
     # anchors: top-n confident candidates per S1; compare every candidate with its S1's anchors (excluding itself)
     rank = out["s2_rank_in_s1"]

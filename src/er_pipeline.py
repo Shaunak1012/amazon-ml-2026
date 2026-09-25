@@ -209,19 +209,40 @@ def cmd_validate(a: argparse.Namespace) -> None:
     log(json.dumps({k: res[k] for k in ("chosen", "dev_f05", "dev_f05_by_country", "dev_blocking_recall")}, indent=1))
 
 
+def choose_decision(p: pd.DataFrame, y: dict) -> tuple[str, float, float]:
+    """Pick the decision rule on OUT-OF-FOLD predictions only: global threshold vs expected-F0.5 (both with the
+    one-S1-per-record assignment). Returns (rule, threshold, oof_score on the compared subset)."""
+    t, f_thr, _ = tune_threshold(p, y, assign=True)
+    ids = list(y)[:50_000]
+    sub = p[p.s1_id.isin(set(ids))]
+    y_sub = {k: y[k] for k in ids}
+    f_ef = er_fbeta_macro(y_sub, decide_expected_f(sub))
+    f_thr_sub = er_fbeta_macro(y_sub, decide(sub, t, True))
+    return ("expected_f", t, f_ef) if f_ef > f_thr_sub else ("threshold", t, f_thr)
+
+
+def apply_decision(p: pd.DataFrame, rule: str, t: float) -> dict[str, set[str]]:
+    return decide_expected_f(p) if rule == "expected_f" else decide(p, t, assign=True)
+
+
 def cmd_predict(a: argparse.Namespace) -> None:
-    """Fit on train S1 (all folds, grouped OOF), tune the threshold on that OOF, predict the full test split."""
+    """Fit stage 1 (+ optional stage 2) on train S1 with grouped OOF, choose the decision rule on OOF, predict test.
+
+    Stage 2 on test: chunks partition the S1s, so sibling features are computed per chunk; the record-level
+    competition features (best other S1) need all chunks and are recomputed once over every test pair.
+    """
     import os
 
     from monitor import Heartbeat
     from src.er_data import dataset_dir
+    from src.er_stage2 import competition_features
     from src.er_submission import write_outputs
 
     t0 = time.time()
     out_dir = Path(a.out)
     run_dir = Path("runs") / a.exp
-    run_dir.mkdir(parents=True, exist_ok=True)
-    hb = Heartbeat(os.environ.get("RUN_ID", a.exp), total_steps=12, every_steps=1, metric_name="train_oof_f05")
+    (run_dir / "test_chunks").mkdir(parents=True, exist_ok=True)
+    hb = Heartbeat(os.environ.get("RUN_ID", a.exp), total_steps=24, every_steps=1, metric_name="train_oof_f05")
     hb.step(0, force=True, stage="load train")
     d = Split("train", a.model)
     folds = pd.read_parquet(cache_dir() / "folds_s1_k5.parquet").set_index("s1_id").reindex(d.s1.entity_id)
@@ -233,43 +254,75 @@ def cmd_predict(a: argparse.Namespace) -> None:
     truth = set(zip(d.gt.s1_id, d.gt.cand_id))
     X["y"] = [(s, c) in truth for s, c in zip(X.s1_id, X.cand_id)]
     log(f"train: {len(X):,} pairs from {tr_mask.sum():,} S1 [{time.time() - t0:.0f}s]")
-    hb.step(1, force=True, stage="lightgbm")
+    hb.step(1, force=True, stage="stage-1 lightgbm")
     groups = folds.fold.reindex(X.s1_id).to_numpy()
-    oof, models = train_oof(X, X.y.to_numpy().astype(int), groups, {"learning_rate": a.lr},
-                            num_boost_round=a.rounds, early_stopping=50)
+    params = {"learning_rate": a.lr}
+    oof, models1 = train_oof(X, X.y.to_numpy().astype(int), groups, params, num_boost_round=a.rounds,
+                             early_stopping=50)
     y_tr = d.truth(d.s1.entity_id[tr_mask])
-    t, f, _ = tune_threshold(X[["s1_id", "cand_id"]].assign(prob=oof), y_tr, assign=True)
-    log(f"fitted {len(models)} models; OOF F0.5 {f:.4f} at threshold {t} [{time.time() - t0:.0f}s]")
+    p_tr = X[["s1_id", "cand_id"]].assign(prob=oof)
+    models2 = None
+    if a.stage2:
+        m = topk_mask(p_tr, a.prefilter) if a.prefilter else np.ones(len(p_tr), bool)
+        X, p_tr, groups = X[m].reset_index(drop=True), p_tr[m].reset_index(drop=True), groups[m]
+        F = cluster_features(p_tr, d.right, {v: d.embp[v] for v in d.views})
+        X2 = pd.concat([X, F], axis=1)
+        hb.step(2, force=True, stage="stage-2 lightgbm")
+        oof2, models2 = train_oof(X2, X2.y.to_numpy().astype(int), groups, params, num_boost_round=a.rounds,
+                                  early_stopping=50)
+        p_tr = X2[["s1_id", "cand_id"]].assign(prob=oof2)
+        del X2, F
+    rule, t, f = choose_decision(p_tr, y_tr)
+    log(f"stage{'2' if a.stage2 else '1'} OOF F0.5 {f:.4f} with rule={rule} (t={t}) [{time.time() - t0:.0f}s]")
     hb.val(f)
-    hb.step(2, force=True, stage="test")
-    for i, m in enumerate(models):
-        m.save_model(str(run_dir / f"lgbm_fold{i}.txt"))
+    for name, ms in (("s1", models1), ("s2", models2 or [])):
+        for i, mdl in enumerate(ms):
+            mdl.save_model(str(run_dir / f"lgbm_{name}_fold{i}.txt"))
     del d, X, pairs
 
     te = Split("test", a.model)
     s1_ids = te.s1.entity_id.to_numpy()
-    cand_parts, prob_parts = [], []
-    for start in range(0, len(te.s1), a.chunk):
+    n_chunks = (len(te.s1) + a.chunk - 1) // a.chunk
+    probs_parts = []
+    for ci, start in enumerate(range(0, len(te.s1), a.chunk)):
         mask = np.zeros(len(te.s1), bool)
         mask[start:start + a.chunk] = True
-        tp = retrieve(te, mask, a.k)
-        Xt = featurize(te, tp)
-        prob_parts.append(Xt[["s1_id", "cand_id"]].assign(prob=predict(models, Xt).astype(np.float32)))
-        cand_parts.append(tp[["s1_id", "cand_id"]])
-        log(f"test chunk {start // a.chunk + 1}: {len(tp):,} pairs [{time.time() - t0:.0f}s]")
-        hb.step(2 + start // a.chunk + 1, force=True, stage="test chunks")
-    probs = pd.concat(prob_parts, ignore_index=True)
+        Xt = featurize(te, retrieve(te, mask, a.k))
+        pt = Xt[["s1_id", "cand_id"]].assign(prob=predict(models1, Xt).astype(np.float32))
+        if a.stage2:
+            m = topk_mask(pt, a.prefilter) if a.prefilter else np.ones(len(pt), bool)
+            Xt, pt = Xt[m].reset_index(drop=True), pt[m].reset_index(drop=True)
+            F = cluster_features(pt, te.right, {v: te.embp[v] for v in te.views})   # sibling feats are chunk-local
+            pd.concat([Xt, F], axis=1).to_parquet(run_dir / "test_chunks" / f"{ci:03d}.parquet", index=False)
+        probs_parts.append(pt)
+        log(f"test chunk {ci + 1}/{n_chunks}: {len(pt):,} pairs kept [{time.time() - t0:.0f}s]")
+        hb.step(3 + ci, force=True, stage="test stage 1")
+    probs = pd.concat(probs_parts, ignore_index=True)
+    if a.stage2:
+        # record-level competition features need ALL test pairs: recompute globally, then stage-2 predict per chunk
+        comp = competition_features(probs)
+        off, parts2 = 0, []
+        for ci in range(n_chunks):
+            X2 = pd.read_parquet(run_dir / "test_chunks" / f"{ci:03d}.parquet")
+            n = len(X2)
+            for c, v in comp.items():
+                X2[c] = v[off:off + n]
+            parts2.append(X2[["s1_id", "cand_id"]].assign(prob=predict(models2, X2).astype(np.float32)))
+            off += n
+            hb.step(3 + n_chunks + ci, force=True, stage="test stage 2")
+        probs = pd.concat(parts2, ignore_index=True)
+        log(f"stage 2 applied to {len(probs):,} test pairs [{time.time() - t0:.0f}s]")
     probs.to_parquet(run_dir / "test_probs.parquet", index=False)
-    cands = pd.concat(cand_parts, ignore_index=True)
-    matches = decide(probs, t, assign=True)
+    matches = apply_decision(probs, rule, t)
     candidates: dict[str, list[str]] = {}
-    for s, c in zip(cands.s1_id.to_numpy(), cands.cand_id.to_numpy()):
+    for s, c in zip(probs.s1_id.to_numpy(), probs.cand_id.to_numpy()):
         candidates.setdefault(s, []).append(c)
     write_outputs(matches, candidates, s1_ids, out_dir, test_dir=dataset_dir() / "test")
     n_nonempty = sum(1 for v in matches.values() if v)
-    info = {"exp": a.exp, "threshold": t, "train_oof_f05": f, "train_s1": int(a.train_s1), "k": a.k,
-            "test_s1": len(s1_ids), "test_pairs": len(cands), "nonempty_share": n_nonempty / len(s1_ids),
-            "mean_matches": float(np.mean([len(matches.get(s, ())) for s in s1_ids])),
+    info = {"exp": a.exp, "stage2": bool(a.stage2), "prefilter": a.prefilter, "rule": rule, "threshold": t,
+            "train_oof_f05": f, "train_s1": int(a.train_s1), "k": a.k, "test_s1": len(s1_ids),
+            "test_pairs": len(probs), "nonempty_share": n_nonempty / len(s1_ids),
+            "mean_matches": float(np.mean([len(matches.get(x, ())) for x in s1_ids])),
             "runtime_s": round(time.time() - t0)}
     (run_dir / "predict.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
     log(json.dumps(info))
@@ -297,6 +350,8 @@ def main() -> None:
     pr.add_argument("--lr", type=float, default=0.1)
     pr.add_argument("--rounds", type=int, default=1000)
     pr.add_argument("--model", default="small")
+    pr.add_argument("--stage2", action="store_true")
+    pr.add_argument("--prefilter", type=int, default=0)
     a = ap.parse_args()
     if a.cmd == "validate":
         cmd_validate(a)
