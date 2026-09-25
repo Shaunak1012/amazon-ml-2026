@@ -128,9 +128,15 @@ def evaluate_strategies(p_tr: pd.DataFrame, y_tr: dict, p_dev: pd.DataFrame, y_d
 
 
 def cmd_validate(a: argparse.Namespace) -> None:
+    import os
+
+    from monitor import Heartbeat
+
     out = Path("runs") / a.exp
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
+    hb = Heartbeat(os.environ.get("RUN_ID", a.exp), total_steps=6, every_steps=1, metric_name="dev_f05")
+    hb.step(0, force=True, stage="load")
     d = Split("train", a.model)
     folds = pd.read_parquet(cache_dir() / "folds_s1_k5.parquet").set_index("s1_id").reindex(d.s1.entity_id)
     rng = np.random.default_rng(42)
@@ -157,6 +163,7 @@ def cmd_validate(a: argparse.Namespace) -> None:
         X["y"] = [(s, c) in truth for s, c in zip(X.s1_id, X.cand_id)]
         log(f"{name}: features {X.shape} [{time.time() - t:.0f}s]")
         frames[name] = (X, ids)
+        hb.step(1 if name == "train" else 2, force=True, stage=f"{name} features done")
 
     Xtr, tr_ids_s = frames["train"]
     Xdev, dev_ids_s = frames["dev"]
@@ -165,6 +172,7 @@ def cmd_validate(a: argparse.Namespace) -> None:
     oof, models = train_oof(Xtr, Xtr.y.to_numpy().astype(int), groups,
                             {"learning_rate": a.lr}, num_boost_round=a.rounds, early_stopping=50)
     log(f"LightGBM: {len(models)} fold models [{time.time() - t:.0f}s]")
+    hb.step(3, force=True, stage="stage 1 trained")
     p_tr = Xtr[["s1_id", "cand_id"]].assign(prob=oof)
     p_dev = Xdev[["s1_id", "cand_id"]].assign(prob=predict(models, Xdev))
     y_tr, y_dev = d.truth(tr_ids_s), d.truth(dev_ids_s)
@@ -206,6 +214,8 @@ def cmd_validate(a: argparse.Namespace) -> None:
     res["runtime_s"] = round(time.time() - t0)
     p_dev.to_parquet(out / "dev_probs.parquet", index=False)
     (out / "result.json").write_text(json.dumps(res, indent=2), encoding="utf-8")
+    hb.val(res["dev_f05"])
+    hb.finish("completed")
     log(json.dumps({k: res[k] for k in ("chosen", "dev_f05", "dev_f05_by_country", "dev_blocking_recall")}, indent=1))
 
 
