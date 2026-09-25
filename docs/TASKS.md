@@ -12,3 +12,4 @@ One row per task; the local worker keeps this current (cloud workers never edit 
 | T005 | LightGBM matcher + OOF | local | main | src/er_model.py | todo | |
 | T006 | F0.5 decision layer | local | main | src/er_decide.py | todo | threshold tuned on OOF |
 | T007 | Pipeline CLI + outputs | — | — | src/er_pipeline.py | todo | |
+| T008 | Cross-encoder module (train + score) | cloud | cloud/T008-crossencoder | src/er_crossenc.py, tests/test_er_crossenc.py | cloud | merge with --squash locally so history keeps only the user as author |
