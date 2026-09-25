@@ -64,13 +64,13 @@ def cmd_stage1(a: argparse.Namespace) -> None:
     def score(split_obj: Split, name: str, fold_of_s1: np.ndarray | None, labels: set | None, step0: int) -> None:
         out = rd / f"{name}_chunks"
         out.mkdir(exist_ok=True)
-        n = len(split_obj.s1)
+        n = min(len(split_obj.s1), a.max_s1) if a.max_s1 else len(split_obj.s1)   # --max-s1: smoke tests only
         for ci, start in enumerate(range(0, n, a.chunk)):
             path = out / f"{ci:03d}.parquet"
             if path.exists():
                 continue                                      # resumable
-            mask = np.zeros(n, bool)
-            mask[start:start + a.chunk] = True
+            mask = np.zeros(len(split_obj.s1), bool)
+            mask[start:min(start + a.chunk, n)] = True
             Xc = featurize(split_obj, retrieve(split_obj, mask, a.k))
             prob = predict(models, Xc)                        # default: mean of fold models
             if fold_of_s1 is not None:                        # train: out-of-fold model per S1's fold
@@ -195,6 +195,7 @@ def main() -> None:
     s1.add_argument("--train-s1", type=int, default=200_000)
     s1.add_argument("--prefilter", type=int, default=15)
     s1.add_argument("--chunk", type=int, default=200_000)
+    s1.add_argument("--max-s1", type=int, default=0, help="score only the first N S1 per split (smoke test)")
     s2 = sp.choices["stage2"]
     s2.add_argument("--train-s1", type=int, default=300_000)
     s2.add_argument("--out", default="")
