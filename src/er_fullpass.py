@@ -57,17 +57,25 @@ def cmd_stage1(a: argparse.Namespace) -> None:
     else:
         fit_mask[rng.choice(np.flatnonzero(fold_arr != 0), size=a.train_s1, replace=False)] = True
         group_arr = fold_arr
-    X = featurize(d, retrieve(d, fit_mask, a.k))
     truth = set(zip(d.gt.s1_id, d.gt.cand_id))
-    X["y"] = [(s, c) in truth for s, c in zip(X.s1_id, X.cand_id)]
-    groups = pd.Series(group_arr, index=d.s1.entity_id).reindex(X.s1_id).to_numpy()
-    _, models = train_oof(X, X.y.to_numpy().astype(int), groups, {"learning_rate": a.lr},
-                          num_boost_round=a.rounds, early_stopping=50)
-    fold_ids = list(np.unique(groups))              # models[i] excluded fold fold_ids[i]
-    for i, m in enumerate(models):
-        m.save_model(str(rd / f"stage1_fold{fold_ids[i]}.txt"))
-    log(f"stage 1 fitted on {fit_mask.sum():,} S1 ({len(X):,} pairs), folds {fold_ids} [{time.time() - t0:.0f}s]")
-    del X
+    saved = sorted(rd.glob("stage1_fold*.txt"))
+    if saved:
+        # resume after a stop: reuse the fitted fold models (saved at best iteration), keep already-scored chunks
+        import lightgbm as lgb
+        fold_ids = [int(p.stem.removeprefix("stage1_fold")) for p in saved]
+        models = [lgb.Booster(model_file=str(p)) for p in saved]
+        log(f"reusing {len(models)} saved stage-1 models, folds {fold_ids}")
+    else:
+        X = featurize(d, retrieve(d, fit_mask, a.k))
+        X["y"] = [(s, c) in truth for s, c in zip(X.s1_id, X.cand_id)]
+        groups = pd.Series(group_arr, index=d.s1.entity_id).reindex(X.s1_id).to_numpy()
+        _, models = train_oof(X, X.y.to_numpy().astype(int), groups, {"learning_rate": a.lr},
+                              num_boost_round=a.rounds, early_stopping=50)
+        fold_ids = [int(g) for g in np.unique(groups)]  # models[i] excluded fold fold_ids[i]
+        for i, m in enumerate(models):
+            m.save_model(str(rd / f"stage1_fold{fold_ids[i]}.txt"))
+        log(f"stage 1 fitted on {fit_mask.sum():,} S1 ({len(X):,} pairs), folds {fold_ids} [{time.time() - t0:.0f}s]")
+        del X
     hb.step(1, force=True, stage="score train")
 
     def score(split_obj: Split, name: str, fold_of_s1: np.ndarray | None, labels: set | None, step0: int) -> None:
