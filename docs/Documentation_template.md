@@ -68,7 +68,7 @@ Planned approach: a retrieve → score → decide entity-resolution pipeline. No
 | Tag | What | Validation F0.5 | Public LB |
 |---|---|---|---|
 | sub-01 | All-empty format probe (no model) | n/a | pending |
-| sub-02 | Baseline: multilingual-e5-small blocking (name, address, name+address views; top-10 each from S2 and S3, same country) + LightGBM on 33 similarity/context features + threshold 0.70 with one-S1-per-record assignment | 0.9476 (dev, 100k held-out S1); 0.9487 (5-fold OOF) | pending |
+| sub-02 | Baseline: multilingual-e5-small blocking (name, address, name+address views; top-10 each from S2 and S3, same country) + LightGBM on 31 similarity/context features + threshold 0.70 with one-S1-per-record assignment | 0.9476 (dev, 100k held-out S1); 0.9487 (5-fold OOF) | pending |
 
 ---
 
