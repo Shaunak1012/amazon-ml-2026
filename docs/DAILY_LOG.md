@@ -8,6 +8,33 @@ mid-way should catch up in 2 minutes. Also keep the GPU queue current.
 |---|---|---|---|
 | — | — | — | — |
 
+## HANDOFF — 2026-09-25 22:15 IST (read this first in a new session)
+**Leaderboard:** best = sub-06 **0.975154** (rank 53; #1 = 0.986955; top-50 = PPI cut). Probes: sub-03 0.947598,
+France-emptied 0.821 (France ≈ 0.89), France-strict 0.949822. Slots: 0 left on 25 Sep; **5 fresh on 26 Sep**.
+
+**Ready to upload after midnight:** `submissions/sub_E013_rarity/matching_results.tsv` = tag **sub-07**
+(E013: sub-06 + name-rarity features, dev F0.5 0.9844; both validators pass). Expected LB ~0.9755.
+
+**Running now (from the old chat session; keep that window open until it finishes):**
+`E014` fine-tuned bi-encoder chain → `runs/E014-bienc/model` → train embeddings `data/cache/emb/train_s*_both_ft.npy`
+→ prints dev recall gain (`scripts/recall_gain.py --view both --tag ft --k 10 20`). Check with:
+`ls runs/E014-*; cat runs/E014-bienc-train/exit.json; tail runs/E014-bienc-embed-train/train.log`.
+
+**Decision pending:** if the ft view lifts dev union recall well above 0.9740 (e.g. 0.985+), do the full rebuild:
+1. embed TEST with the ft model (`python -m src.er_embed --split test --sources 1 2 3 --view both --model runs/E014-bienc/model --tag ft`);
+2. stage 1 over the full population with the ft view added (needs a `--views` option in `src/er_fullpass.py` stage1 and
+   `Split(views=...)`; ft files use suffix `ft`, so Split must map view→suffix, e.g. views name/addr/both(small)+both(ft));
+3. CE A scores for the new chunks (train folds 0,3 and test), then `stage2 --ce-dir ... --fit-folds 3` (+ rarity is built in).
+If the gain is small, skip the rebuild.
+
+**Error analysis (E010 dev, loss 0.016):** 51% true pairs never retrieved (India 3x US), 37% retrieved but rejected,
+10% false matches. Empty-address candidates are a big share of rejects/FPs (→ name-rarity features, E013).
+Char n-gram view (E012) only +0.4pt recall — not worth a rebuild alone.
+
+**Key facts:** pipeline & commands in docs/REPRODUCE.md; experiments in docs/EXPERIMENTS.md; ledger in
+docs/SUBMISSIONS.md; rules/compliance in docs/COMPETITION.md. Cross-S1 features must be computed over the full
+population (DECISIONS 2026-09-25). Portal takes the TSV only. Git: sequential commits, user as sole author, no AI mentions.
+
 ## 2026-09-25 (Day 1) — end of day
 - **Leaderboard:** sub-06 **0.975154** (leader 0.986955). sub-03 0.947598; France probes: France-emptied 0.821,
   France-strict 0.949822. sub-02 failed at the portal (counted). 0 slots left today; 5 tomorrow.
