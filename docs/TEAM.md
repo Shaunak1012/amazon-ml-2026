@@ -21,7 +21,8 @@ AWS, or Kaggle/Colab notebooks for their own experiments.
 
 ## Sharing OOF predictions
 - Everyone writes via `src.oof.save_oof(...)` → `OOF_DIR/<exp_id>/{oof.parquet,test.parquet,meta.json}`.
-- **Same folds file** for all (`DATA_DIR/folds_s42_k5.csv`, made once by Lead). `stack_oofs` refuses mismatched folds.
+- **Same folds file** for all: `data/cache/folds_s1_k5.parquet` (written by `python scripts/make_folds.py`: 5 folds over
+  train S1, seed 42, plus a fixed 100k-S1 `dev` subset of fold 0). `stack_oofs` refuses mismatched folds.
 - OOF preds in the **original target space**; ids as strings exactly as in the data.
 - Shared storage (pick one on Day 1, record in DECISIONS.md): a shared Google Drive/OneDrive folder synced to
   `OOF_DIR`, or an S3 bucket (`aws s3 sync oof/ s3://<bucket>/oof/`). OOF files are small (MBs); never commit them.
