@@ -23,7 +23,7 @@ import pandas as pd
 
 from src.er_data import cache_dir
 from src.er_model import predict, train_oof
-from src.er_pipeline import Split, apply_decision, choose_decision, featurize, log, retrieve, topk_mask
+from src.er_pipeline import VIEWS, Split, apply_decision, choose_decision, featurize, log, retrieve, topk_mask
 from src.er_stage2 import cluster_features, competition_features
 from src.metrics import er_fbeta_macro
 
@@ -42,16 +42,25 @@ def cmd_stage1(a: argparse.Namespace) -> None:
     t0 = time.time()
     rd = run_dir(a.exp)
     hb = Heartbeat(os.environ.get("RUN_ID", a.exp), total_steps=25, every_steps=1)
-    d = Split("train", a.model)
+    d = Split("train", a.model, a.views)
     folds = pd.read_parquet(cache_dir() / "folds_s1_k5.parquet").set_index("s1_id").reindex(d.s1.entity_id)
     fold_arr = folds.fold.to_numpy()
     rng = np.random.default_rng(42)
     fit_mask = np.zeros(len(d.s1), bool)
-    fit_mask[rng.choice(np.flatnonzero(fold_arr != 0), size=a.train_s1, replace=False)] = True
+    if a.fit_pool == "fold0":
+        # fold 0 minus dev: S1s no learned retrieval view (E014 bi-encoder, folds 1-4) or CE (folds 1-2) has seen,
+        # so their embedding/CE features look like test. OOF uses 4 random internal groups (by S1).
+        cand = np.flatnonzero((fold_arr == 0) & ~folds.dev.to_numpy())
+        fit_mask[rng.choice(cand, size=min(a.train_s1, len(cand)), replace=False)] = True
+        group_arr = np.full(len(d.s1), -1)
+        group_arr[fit_mask] = np.random.default_rng(0).integers(0, 4, fit_mask.sum())
+    else:
+        fit_mask[rng.choice(np.flatnonzero(fold_arr != 0), size=a.train_s1, replace=False)] = True
+        group_arr = fold_arr
     X = featurize(d, retrieve(d, fit_mask, a.k))
     truth = set(zip(d.gt.s1_id, d.gt.cand_id))
     X["y"] = [(s, c) in truth for s, c in zip(X.s1_id, X.cand_id)]
-    groups = folds.fold.reindex(X.s1_id).to_numpy()
+    groups = pd.Series(group_arr, index=d.s1.entity_id).reindex(X.s1_id).to_numpy()
     _, models = train_oof(X, X.y.to_numpy().astype(int), groups, {"learning_rate": a.lr},
                           num_boost_round=a.rounds, early_stopping=50)
     fold_ids = list(np.unique(groups))              # models[i] excluded fold fold_ids[i]
@@ -88,11 +97,11 @@ def cmd_stage1(a: argparse.Namespace) -> None:
             log(f"{name} chunk {ci + 1}: kept {len(Xc):,} pairs [{time.time() - t0:.0f}s]")
             hb.step(step0 + ci, force=True, stage=f"score {name}")
 
-    score(d, "train", fold_arr, truth, 2)
+    score(d, "train", group_arr, truth, 2)          # group -1 (not fitted on) -> mean of all models
     del d
-    te = Split("test", a.model)
+    te = Split("test", a.model, a.views)
     score(te, "test", None, None, 14)
-    (rd / "stage1.json").write_text(json.dumps({"fold_ids": [int(x) for x in fold_ids], "k": a.k,
+    (rd / "stage1.json").write_text(json.dumps({"fold_ids": [int(x) for x in fold_ids], "k": a.k, "views": a.views,
                                                 "prefilter": a.prefilter, "train_s1": a.train_s1,
                                                 "runtime_s": round(time.time() - t0)}), encoding="utf-8")
     hb.finish("completed")
@@ -186,10 +195,10 @@ def cmd_stage2(a: argparse.Namespace) -> None:
 
     t0 = time.time()
     rd = run_dir(a.exp)
-    d = Split("train", a.model)
+    d = Split("train", a.model, a.views)
     folds = pd.read_parquet(cache_dir() / "folds_s1_k5.parquet").set_index("s1_id")
     rng = np.random.default_rng(7)
-    pool = folds.index[folds.fold.isin(a.fit_folds)].to_numpy()   # e.g. 3 4 when the CE trained on folds 1-2
+    pool = folds.index[folds.fold.isin(a.fit_folds) & ~folds.dev].to_numpy()   # dev never fits (fold 0 holds dev)
     fit_ids = set(rng.choice(pool, size=min(a.train_s1, len(pool)), replace=False))
     dev_ids = set(folds.index[folds.dev])
     X = stage2_frames(d, with_ce(load_chunks(rd, "train"), a.ce_dir, "train"), fit_ids | dev_ids)
@@ -233,7 +242,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     del d, X, Xtr, Xdev
     if not a.out:
         return
-    te = Split("test", a.model)
+    te = Split("test", a.model, a.views)
     Xt = stage2_frames(te, with_ce(load_chunks(rd, "test"), a.ce_dir, "test"), None)
     ft = Xt.drop(columns=["prob"])
     ft["s1_prob"] = Xt.prob.to_numpy()
@@ -260,11 +269,15 @@ def main() -> None:
         p.add_argument("--model", default="small")
         p.add_argument("--lr", type=float, default=0.1)
         p.add_argument("--rounds", type=int, default=1000)
+        p.add_argument("--views", nargs="+", default=list(VIEWS),
+                       help="retrieval/feature views; '<view>_<tag>' uses embeddings tagged <tag> (e.g. both_ft)")
     s1 = sp.choices["stage1"]
     s1.add_argument("--k", type=int, default=10)
     s1.add_argument("--train-s1", type=int, default=200_000)
     s1.add_argument("--prefilter", type=int, default=15)
     s1.add_argument("--chunk", type=int, default=200_000)
+    s1.add_argument("--fit-pool", choices=["folds14", "fold0"], default="folds14",
+                    help="fold0 = fold 0 minus dev (unseen by the E014 bi-encoder and the CE)")
     s1.add_argument("--max-s1", type=int, default=0, help="score only the first N S1 per split (smoke test)")
     s2 = sp.choices["stage2"]
     s2.add_argument("--train-s1", type=int, default=300_000)

@@ -62,9 +62,11 @@ class Split:
         n3 = pd.read_parquet(cache_dir() / f"{split}_s3_norm.parquet")
         self.left = n1.set_index("entity_id")
         self.right = pd.concat([n2, n3], ignore_index=True).set_index("entity_id")
-        self.emb1 = {v: np.load(emb_dir() / f"{split}_s1_{v}_{model}.npy", mmap_mode="r") for v in views}
-        self.embp = {v: pool_embeddings(split, v, model) for v in views}
-        self.views = views
+        # a view spec "<view>_<tag>" (e.g. "both_ft") reads the files embedded with tag <tag> instead of `model`
+        spec = {v: (v.partition("_")[0], v.partition("_")[2] or model) for v in views}
+        self.emb1 = {v: np.load(emb_dir() / f"{split}_s1_{b}_{t}.npy", mmap_mode="r") for v, (b, t) in spec.items()}
+        self.embp = {v: pool_embeddings(split, b, t) for v, (b, t) in spec.items()}
+        self.views = tuple(views)
         self.n2 = len(s2)
 
     def truth(self, s1_ids) -> dict[str, set[str]]:
