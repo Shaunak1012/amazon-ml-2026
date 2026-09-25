@@ -102,6 +102,30 @@ before final rankings are confirmed. Code needs proper comments describing the f
 - One login per participant; desktop or laptop only; simultaneous logins can terminate the session.
 - Multiple IDs, cheating or plagiarism mean disqualification.
 
+## Rule clarification from the organisers (received 2026-09-25)
+- **Prohibited:** external databases, APIs, geocoding or entity lookup, internet-sourced augmentation, and **packages
+  bundling external geo/postal/business data** (e.g. libpostal, geocoders, postal-code or gazetteer datasets).
+- **Allowed:** pure-algorithm libraries (RapidFuzz, jellyfish, scikit-learn, LightGBM, pandas), general-language
+  pretrained NLP/embedding models within the limits, any algorithm using only the provided records, and **small
+  hand-written normalisation dictionaries**.
+- **Every model** (embedder, reranker, matcher, preprocessing model) must independently be MIT/Apache-2.0, ≤ 8B
+  parameters, run **offline** (no live API calls), and be **fine-tuned only on the provided data**. Licences are checked.
+- **Hosted LLM APIs (Claude/Gemini/ChatGPT) are not allowed** in the solution.
+
+### Our compliance (keep current; mirrored in docs/REPRODUCE.md)
+| Component | Type | Licence | Params | Verdict |
+|---|---|---|---|---|
+| intfloat/multilingual-e5-small | embedding model, offline | MIT | 118M | allowed; fine-tuning (if any) only on provided train data |
+| microsoft/mdeberta-v3-base (planned) | cross-encoder backbone, offline | MIT | 278M | allowed |
+| LightGBM | pure-algorithm library | MIT | n/a | allowed |
+| rapidfuzz, jellyfish, scikit-learn, pandas, numpy, pyarrow | pure-algorithm libraries | MIT/BSD | n/a | allowed |
+| anyascii | Unicode → ASCII character transliteration (no geo/postal/business data) | ISC | n/a | allowed (character mapping, not a gazetteer) |
+| legal-suffix list, `&`→"and", `null` cleanup (`src/er_normalize.py`) | small hand-written normalisation dictionary | ours | n/a | explicitly allowed |
+| postcode / number extraction | regex on provided records | ours | n/a | allowed |
+| network calls in `src/` | none (models load from local cache) | — | — | compliant |
+Never add: libpostal, geocoders, postal-code/gazetteer/state-abbreviation datasets, or hosted LLM calls. Abbreviation
+maps, if used, are learned from the provided training pairs.
+
 ## Submission limits and leaderboard
 - **Max 5 submissions per day**, for 3 days (15 total); the submit button is then disabled. Daily reset time is not
   stated (assume 00:00 IST).
