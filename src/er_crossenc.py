@@ -44,13 +44,15 @@ def _texts(df: pd.DataFrame) -> pd.Series:
 
 def _pair_texts(pairs: pd.DataFrame, left: pd.DataFrame, right: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     """(S1 text, candidate text) arrays aligned with pairs; raises if an id is missing from left/right."""
-    a = _texts(left).reindex(np.asarray(pairs["s1_id"], dtype=object)).to_numpy()
-    b = _texts(right).reindex(np.asarray(pairs["cand_id"], dtype=object)).to_numpy()
-    for name, arr in (("s1_id", a), ("cand_id", b)):
-        miss = pd.isna(arr)
+    out = []
+    for name, src in (("s1_id", left), ("cand_id", right)):
+        ids = np.asarray(pairs[name], dtype=object)
+        sub = src.reindex(pd.unique(ids))           # text only for the records these pairs use (not all ~12M)
+        miss = sub["business_name"].isna()
         if miss.any():
             raise KeyError(f"{int(miss.sum())} {name} values not found in source records")
-    return a, b
+        out.append(_texts(sub).reindex(ids).to_numpy())
+    return out[0], out[1]
 
 
 def sample_training_pairs(chunks: pd.DataFrame, n: int, pos_frac: float = 0.4, seed: int = 0) -> pd.DataFrame:
