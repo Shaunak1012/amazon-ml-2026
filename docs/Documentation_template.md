@@ -71,7 +71,7 @@ Planned approach: a retrieve → score → decide entity-resolution pipeline. No
 | sub-02 | Baseline: multilingual-e5-small blocking (name, address, name+address views; top-10 each from S2 and S3, same country) + LightGBM on 31 similarity/context features + threshold 0.70 with one-S1-per-record assignment | 0.9476 (dev, 100k held-out S1); 0.9487 (5-fold OOF) | pending |
 | sub-03 (LB 0.947598) | Stage 1 over every S1 (train out-of-fold), top-15 candidates, second-stage LightGBM with cluster and full-population competition features, expected-F0.5 decisions | 0.9643 (dev); 0.9618 (OOF) | pending |
 | sub-06 (LB 0.975154) | sub-03 pipeline + cross-encoder (multilingual-e5-small fine-tuned as a sequence-pair classifier on 2M stage-1 candidate pairs from folds 1-2) as a stage-2 feature | 0.9840 (dev); 0.9838 (OOF) | pending |
-| sub-08 | sub-06 + label-free name-rarity features (same-name counts per country, rarest-token frequency) targeting empty-address candidates | 0.9844 (dev); 0.9843 (OOF) | pending |
+| sub-07 | sub-06 + label-free name-rarity features (same-name counts per country, rarest-token frequency) targeting empty-address candidates | 0.9844 (dev); 0.9843 (OOF) | pending |
 
 ---
 

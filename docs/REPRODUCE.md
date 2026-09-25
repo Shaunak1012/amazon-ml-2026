@@ -1,7 +1,7 @@
 # Business Entity Resolution: how to reproduce
 
 This file becomes `code/business_entity_resolution/README.md` in the submission zip. It reproduces the current
-pipeline (submission `sub-08`, experiments E007 + E008 + E013). Later submissions update this file at their own git tag.
+pipeline (submission `sub-07`, experiments E007 + E008 + E013). Later submissions update this file at their own git tag.
 
 ## Environment
 - Python 3.11. `pip install -r requirements.txt` (pinned; includes PyTorch 2.8.0 + CUDA 12.8 wheels).
