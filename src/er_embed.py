@@ -43,7 +43,13 @@ def view_texts(df: pd.DataFrame, view: str) -> list[str]:
 
 
 class Encoder:
-    def __init__(self, model: str = "small", device: str = "cuda"):
+    def __init__(self, model: str = "small", device: str | None = None):
+        """device=None: CUDA if available, else CPU with a warning. Embedding ~24M texts needs a GPU in practice
+        (~21k texts/s on an RTX 5080; CPU is orders of magnitude slower)."""
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            if device == "cpu":
+                print("WARNING: no CUDA GPU found; embedding on CPU will be very slow", flush=True)
         repo = MODELS.get(model, model)
         self.tok = AutoTokenizer.from_pretrained(repo)
         self.model = AutoModel.from_pretrained(repo, torch_dtype=torch.bfloat16).to(device).eval()

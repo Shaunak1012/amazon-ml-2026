@@ -5,7 +5,8 @@ pipeline (submission `sub-02`, experiment E004). Later submissions update this f
 
 ## Environment
 - Python 3.11. `pip install -r requirements.txt` (pinned; includes PyTorch 2.8.0 + CUDA 12.8 wheels).
-- GPU: used for multilingual-e5-small embeddings and exact nearest-neighbour search. Tested on an RTX 5080 (16 GB).
+- **GPU required in practice (CUDA)**: multilingual-e5-small embeddings (~24M texts) and exact nearest-neighbour
+  search. Tested on an RTX 5080 (16 GB). Without CUDA the code falls back to CPU, but embedding becomes impractically slow.
   Everything else runs on CPU (32 threads used by LightGBM and rapidfuzz).
 - RAM: 64 GB (peak ~50 GB during test prediction). Disk: ~40 GB free for caches.
 - Copy `.env.example` to `.env`. `DATA_DIR` defaults to `./data`.
