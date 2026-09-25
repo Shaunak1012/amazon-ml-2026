@@ -28,20 +28,22 @@ CAND_HEADER = ("source1_entity_id", "candidate_entity_ids")
 
 
 # ------------------------------------------------------------------ loading
-def read_tsv(path: str | Path) -> pd.DataFrame:
+def read_tsv(path: str | Path, usecols=None) -> pd.DataFrame:
     """Read an organiser TSV: tab-separated, everything as str, empty cells stay ''."""
-    return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False, quoting=3)  # 3 = QUOTE_NONE
+    return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False, quoting=3,  # 3 = QUOTE_NONE
+                       usecols=usecols)
 
 
-def load_sources(split_dir: str | Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """split_dir contains <split>_source{1,2,3}.tsv (e.g. dataset/test/test_source1.tsv)."""
+def load_sources(split_dir: str | Path, usecols=None) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """split_dir contains <split>_source{1,2,3}.tsv (e.g. dataset/test/test_source1.tsv).
+    Pass usecols=["entity_id"] when only IDs are needed (the validator) to keep memory low."""
     d = Path(split_dir)
     out = []
     for k in (1, 2, 3):
         files = sorted(d.glob(f"*_source{k}.tsv"))
         if len(files) != 1:
             raise FileNotFoundError(f"expected exactly one *_source{k}.tsv in {d}, found {files}")
-        out.append(read_tsv(files[0]))
+        out.append(read_tsv(files[0], usecols))
     return out[0], out[1], out[2]
 
 
@@ -136,7 +138,7 @@ def validate_outputs(matching: str | Path, candidate: str | Path | None = None, 
     valid_s1 = set(s1_ids) if s1_ids is not None else None
     valid_other = None
     if test_dir is not None:
-        s1, s2, s3 = load_sources(test_dir)
+        s1, s2, s3 = load_sources(test_dir, usecols=["entity_id"])   # IDs only (low memory)
         valid_s1 = set(s1["entity_id"])
         valid_other = set(s2["entity_id"]) | set(s3["entity_id"])
     elif valid_s1 is None:
