@@ -366,9 +366,15 @@ def cmd_score(a: argparse.Namespace) -> None:
     t0 = time.time()
     with Heartbeat(os.environ.get("RUN_ID") or f"crossenc-score-{a.split}", total_steps=len(files),
                    every_steps=1, meta={"model": str(a.model), "chunks": str(a.chunks)}) as hb:
+        keep = excluded_s1(a.only_folds) if a.only_folds else None   # S1s whose pairs we actually need
         for p in todo:
             pairs = pd.read_parquet(p, columns=["s1_id", "cand_id"])
-            pairs["ce_score"] = score_loaded(model, tok, dev, pairs, left, right, batch=a.batch, max_len=a.max_len)
+            scores = np.full(len(pairs), np.nan, dtype=np.float32)   # rows stay aligned with the chunk
+            sel = np.ones(len(pairs), bool) if keep is None else pairs.s1_id.isin(keep).to_numpy()
+            if sel.any():
+                scores[sel] = score_loaded(model, tok, dev, pairs[sel].reset_index(drop=True), left, right,
+                                           batch=a.batch, max_len=a.max_len)
+            pairs["ce_score"] = scores
             tmp = out / (p.name + ".tmp")
             pairs.to_parquet(tmp, index=False)
             os.replace(tmp, out / p.name)
@@ -407,6 +413,8 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--batch", type=int, default=512)
     s.add_argument("--max-len", type=int, default=96)
     s.add_argument("--device", default=None)
+    s.add_argument("--only-folds", type=int, nargs="*", default=[],
+                   help="score only S1s in these folds (others get NaN, rows stay aligned); e.g. 0 3 4")
     s.set_defaults(fn=cmd_score)
     a = ap.parse_args(argv)
     a.fn(a)
