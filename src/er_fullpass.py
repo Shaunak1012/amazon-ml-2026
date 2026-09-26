@@ -180,8 +180,27 @@ def name_rarity(split_obj: Split) -> tuple[pd.DataFrame, pd.DataFrame]:
     return left, right
 
 
+def _norm2(split: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """v2 normalised strings (src.er_norm2 cache), indexed by entity_id: (S1, S2+S3)."""
+    L = pd.read_parquet(cache_dir() / f"{split}_s1_norm2.parquet").set_index("entity_id")
+    R = pd.concat([pd.read_parquet(cache_dir() / f"{split}_s{k}_norm2.parquet") for k in (2, 3)]).set_index("entity_id")
+    return L, R
+
+
+def norm2_pair_features(s1_ids, cand_ids, L2: pd.DataFrame, R2: pd.DataFrame, only: tuple | None = None) -> dict:
+    """E024 features from v2 strings: street types expanded, dotted legal forms collapsed (src/er_norm2.py)."""
+    from rapidfuzz import fuzz, process
+    a_n, b_n = L2.name_core2.reindex(s1_ids).to_numpy(), R2.name_core2.reindex(cand_ids).to_numpy()
+    a_a, b_a = L2.addr_norm2.reindex(s1_ids).to_numpy(), R2.addr_norm2.reindex(cand_ids).to_numpy()
+    spec = {"name2_ratio": (a_n, b_n, fuzz.ratio), "name2_tset": (a_n, b_n, fuzz.token_set_ratio),
+            "name2_tsort": (a_n, b_n, fuzz.token_sort_ratio), "addr2_tset": (a_a, b_a, fuzz.token_set_ratio),
+            "addr2_tsort": (a_a, b_a, fuzz.token_sort_ratio)}
+    return {k: (process.cpdist(x, y, scorer=f, workers=-1) / 100.0).astype(np.float32)
+            for k, (x, y, f) in spec.items() if only is None or k in only}
+
+
 def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | None,
-                  comp_cols: tuple[str, ...] = ()) -> pd.DataFrame:
+                  comp_cols: tuple[str, ...] = (), norm2: bool = False) -> pd.DataFrame:
     """Stage-2 design matrix: sibling feats per chunk (chunks partition S1) + competition feats over ALL chunks.
 
     comp_cols: extra stage-1 columns (e.g. name_full_tset) whose record-level "best other S1" competition features
@@ -190,6 +209,10 @@ def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | N
     comp = competition_features(allp)
     for col in comp_cols:
         comp.update(competition_features(allp, col))
+    if norm2:
+        L2, R2 = _norm2(split_obj.split)
+        allp["name2_ratio"] = norm2_pair_features(allp.s1_id, allp.cand_id, L2, R2, only=("name2_ratio",))["name2_ratio"]
+        comp.update(competition_features(allp, "name2_ratio"))
     comp_keys = list(comp)
     del allp
     parts, off = [], 0
@@ -203,6 +226,9 @@ def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | N
             F = cluster_features(cs[["s1_id", "cand_id", "prob"]], split_obj.right, emb)
             for k in comp_keys:
                 F[k] = comp[k][off:off + n][sel]
+            if norm2:
+                for k, v in norm2_pair_features(cs.s1_id, cs.cand_id, L2, R2).items():
+                    F[k] = v
             F = pd.concat([F, rl.reindex(cs.s1_id).reset_index(drop=True),
                            rr.reindex(cs.cand_id).reset_index(drop=True)], axis=1)
             parts.append(pd.concat([cs, F], axis=1))
@@ -245,7 +271,7 @@ def cached_frame(a: argparse.Namespace, name: str, build) -> pd.DataFrame:
     fd = Path(a.frames)
     fd.mkdir(parents=True, exist_ok=True)
     key = {"exp": a.exp, "ce_dir": list(a.ce_dir), "comp_cols": list(a.comp_cols), "views": list(a.views),
-           "fit_folds": list(a.fit_folds), "train_s1": a.train_s1}
+           "fit_folds": list(a.fit_folds), "train_s1": a.train_s1, **({"norm2": True} if a.norm2 else {})}
     meta, path = fd / "frames.json", fd / f"{name}_frame.parquet"
     if meta.exists() and json.loads(meta.read_text(encoding="utf-8")) != key:
         raise ValueError(f"{fd} was built for {meta.read_text()}, not {key}; use another --frames dir")
@@ -272,7 +298,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     fit_ids = set(rng.choice(pool, size=min(a.train_s1, len(pool)), replace=False))
     dev_ids = set(folds.index[folds.dev])
     X = cached_frame(a, "train", lambda: stage2_frames(d, with_ce(load_chunks(rd, "train"), a.ce_dir, "train"),
-                                                       fit_ids | dev_ids, tuple(a.comp_cols)))
+                                                       fit_ids | dev_ids, tuple(a.comp_cols), a.norm2))
     log(f"stage-2 frame {X.shape} [{time.time() - t0:.0f}s]")
     is_dev = X.s1_id.isin(dev_ids).to_numpy()
     Xtr, Xdev = X[~is_dev].reset_index(drop=True), X[is_dev].reset_index(drop=True)
@@ -332,7 +358,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
         return
     te = Split("test", a.model, a.views)
     Xt = cached_frame(a, "test", lambda: stage2_frames(te, with_ce(load_chunks(rd, "test"), a.ce_dir, "test"), None,
-                                                       tuple(a.comp_cols)))
+                                                       tuple(a.comp_cols), a.norm2))
     ft = Xt.drop(columns=["prob"])
     ft["s1_prob"] = Xt.prob.to_numpy()
     probs = Xt[["s1_id", "cand_id"]].assign(prob=predict(models, ft).astype(np.float32))
@@ -381,6 +407,7 @@ def main() -> None:
     s2.add_argument("--tag", default="", help="suffix for saved dev predictions (dev_stage2_<tag>.parquet)")
     s2.add_argument("--frames", default="", help="cache dir for the stage-2 design matrices (load if present, else save)")
     s2.add_argument("--lgb-params", default="", help='JSON LightGBM overrides, e.g. {"num_leaves": 255}')
+    s2.add_argument("--norm2", action="store_true", help="E024: add v2-normalised name/address features (src/er_norm2.py)")
     s2.add_argument("--comp-cols", nargs="*", default=[],
                     help="stage-1 columns for extra full-population competition features, e.g. name_full_tset")
     s2.add_argument("--stage3", action="store_true",
