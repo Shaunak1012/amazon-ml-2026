@@ -109,3 +109,11 @@ def test_density_mask_keeps_fit_dev_and_thins_others():
     kept = set(allp.s1_id[m])
     assert always <= kept and 0.45 < (len(kept) - 100) / 900 < 0.55
     assert density_mask(allp, always, 1.0).all()
+
+
+def test_prune_keeps_pairs_above_eps_and_is_noop_at_zero():
+    from src.er_fullpass import prune
+
+    c = [pd.DataFrame({"s1_id": ["a", "a", "b"], "cand_id": ["x", "y", "z"], "prob": [0.5, 0.0005, 0.004]})]
+    assert prune(c, 0.0) is c
+    assert prune(c, 0.003)[0].cand_id.tolist() == ["x", "z"]

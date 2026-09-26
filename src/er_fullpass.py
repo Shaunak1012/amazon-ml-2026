@@ -120,6 +120,16 @@ def load_chunks(rd: Path, name: str, columns=None) -> list[pd.DataFrame]:
     return [pd.read_parquet(p, columns=columns) for p in sorted((rd / f"{name}_chunks").glob("*.parquet"))]
 
 
+def prune(chunks: list[pd.DataFrame], eps: float) -> list[pd.DataFrame]:
+    """Keep pairs with stage-1 prob >= eps: the final model's candidate set (= candidate_pairs.tsv).
+
+    Organisers (26 Sep): a smaller candidate set per S1 ranks higher. Dev (E017): eps 0.003 cuts 15 -> 6.4 candidates
+    per S1 at -0.00007 F0.5 (within fold noise); eps 0.001 -> 7.6 at -0.00003. Applied to train and test alike."""
+    if eps <= 0:
+        return chunks
+    return [c[c.prob.to_numpy() >= eps].reset_index(drop=True) for c in chunks]
+
+
 def with_ce(chunks: list[pd.DataFrame], ce_dirs, split: str) -> list[pd.DataFrame]:
     """Attach cross-encoder scores (src.er_crossenc score output: one parquet per chunk, same row order).
 
@@ -298,7 +308,8 @@ def cached_frame(a: argparse.Namespace, name: str, build) -> pd.DataFrame:
     fd.mkdir(parents=True, exist_ok=True)
     key = {"exp": a.exp, "ce_dir": list(a.ce_dir), "comp_cols": list(a.comp_cols), "views": list(a.views),
            "fit_folds": list(a.fit_folds), "train_s1": a.train_s1, **({"norm2": True} if getattr(a, "norm2", False) else {}),
-           **({"comp_keep": a.comp_keep} if getattr(a, "comp_keep", 1.0) < 1.0 else {})}
+           **({"comp_keep": a.comp_keep} if getattr(a, "comp_keep", 1.0) < 1.0 else {}),
+           **({"prune_eps": a.prune_eps} if getattr(a, "prune_eps", 0.0) > 0 else {})}
     meta, path = fd / "frames.json", fd / f"{name}_frame.parquet"
     if meta.exists() and json.loads(meta.read_text(encoding="utf-8")) != key:
         raise ValueError(f"{fd} was built for {meta.read_text()}, not {key}; use another --frames dir")
@@ -324,7 +335,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     pool = folds.index[folds.fold.isin(a.fit_folds) & ~folds.dev].to_numpy()   # dev never fits (fold 0 holds dev)
     fit_ids = set(rng.choice(pool, size=min(a.train_s1, len(pool)), replace=False))
     dev_ids = set(folds.index[folds.dev])
-    X = cached_frame(a, "train", lambda: stage2_frames(d, with_ce(load_chunks(rd, "train"), a.ce_dir, "train"),
+    X = cached_frame(a, "train", lambda: stage2_frames(d, prune(with_ce(load_chunks(rd, "train"), a.ce_dir, "train"), a.prune_eps),
                                                        fit_ids | dev_ids, tuple(a.comp_cols), a.norm2, a.comp_keep))
     log(f"stage-2 frame {X.shape} [{time.time() - t0:.0f}s]")
     is_dev = X.s1_id.isin(dev_ids).to_numpy()
@@ -384,7 +395,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     if not a.out:
         return
     te = Split("test", a.model, a.views)
-    Xt = cached_frame(a, "test", lambda: stage2_frames(te, with_ce(load_chunks(rd, "test"), a.ce_dir, "test"), None,
+    Xt = cached_frame(a, "test", lambda: stage2_frames(te, prune(with_ce(load_chunks(rd, "test"), a.ce_dir, "test"), a.prune_eps), None,
                                                        tuple(a.comp_cols), a.norm2))
     ft = Xt.drop(columns=["prob"])
     ft["s1_prob"] = Xt.prob.to_numpy()
@@ -434,6 +445,8 @@ def main() -> None:
     s2.add_argument("--tag", default="", help="suffix for saved dev predictions (dev_stage2_<tag>.parquet)")
     s2.add_argument("--frames", default="", help="cache dir for the stage-2 design matrices (load if present, else save)")
     s2.add_argument("--lgb-params", default="", help='JSON LightGBM overrides, e.g. {"num_leaves": 255}')
+    s2.add_argument("--prune-eps", type=float, default=0.0,
+                    help="final candidate set: keep pairs with stage-1 prob >= eps (e.g. 0.003 -> ~6.4 per S1)")
     s2.add_argument("--comp-keep", type=float, default=1.0,
                     help="E025: fraction of non-fit/dev train S1s kept as competitors (test-like density, e.g. 0.78)")
     s2.add_argument("--norm2", action="store_true", help="E024: add v2-normalised name/address features (src/er_norm2.py)")
