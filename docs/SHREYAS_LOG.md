@@ -3,6 +3,14 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-26 18:20 IST: SH01 robust + ensemble
+Paired gain (SH01 both minus current recipe, same dev S1s) on 3 independent test-like dev subsets:
+seed 11: expected-F +0.00029, thr .75 +0.00020 · seed 12: +0.00045 / +0.00030 · seed 13: +0.00033 / +0.00018.
+**Positive in 15/15 (subset x rule) comparisons.** Averaging 4 test-like models (drop seeds 11/12/13 at 19% + one at
+30%, same dev): expected-F 0.98999 vs 0.98957 current (**+0.00042**). A 30% drop alone is worse than 19%, which
+matches test density. Absolute dev moves ~0.0003 between subsets: compare only paired.
+**Final-candidate stage 2 = this 4-model average** on the E020 test frame (pending Shaunak's upload).
+
 ## 2026-09-26 17:40 IST: SH01 result = density shift confirmed, test-like training gives a small real gain
 Frames: Shaunak's E019 train frame (fit = 300k fold-0 S1, dev = 100k). Test-like dev = dev minus a random 19% of all
 train S1s (their records become distractors), competition + rarity features recomputed. Same 80,956 dev S1 for every arm.
