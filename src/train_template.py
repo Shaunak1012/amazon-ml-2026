@@ -28,6 +28,7 @@ from src.seed import seed_everything
 
 
 def synthetic(n: int = 4000, d: int = 32, seed: int = 0):
+    """Small synthetic regression dataset for smoke tests."""
     rng = np.random.RandomState(seed)
     X = rng.randn(n, d).astype("float32")
     y = np.exp(X[:, :4].sum(1) * 0.3 + rng.randn(n) * 0.1).astype("float32")  # positive, skewed (price-like)
@@ -35,6 +36,7 @@ def synthetic(n: int = 4000, d: int = 32, seed: int = 0):
 
 
 def save_ckpt(path: Path, **state) -> None:
+    """Atomically save a training checkpoint (tmp file + rename)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     torch.save(state, tmp)
@@ -42,6 +44,7 @@ def save_ckpt(path: Path, **state) -> None:
 
 
 def train_fold(cfg, k, X, y, tr, va, device, metric_fn, hb: Heartbeat) -> np.ndarray:
+    """Train one fold with checkpointing and heartbeats; returns OOF and test predictions."""
     ckpt_dir = get_paths().ckpt / cfg.exp_id / f"f{k}"
     pred_path = ckpt_dir / "val_pred.npy"
     if pred_path.exists():
@@ -107,6 +110,7 @@ def train_fold(cfg, k, X, y, tr, va, device, metric_fn, hb: Heartbeat) -> np.nda
 
 
 def main(argv: list[str] | None = None) -> float:
+    """CLI: resumable k-fold training template."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--cfg", default="configs/example.yaml")
     ap.add_argument("overrides", nargs="*")

@@ -2,6 +2,15 @@
 
 Newest first. Each entry: what we chose, what else we considered, why — in plain language.
 
+## 2026-09-26 — Train stage 2 at test-like competitor density (E025)
+- **Found:** each candidate record is retrieved by 3.27 S1s on average in train but 2.67 (US), 2.66 (India), 2.84
+  (France) in test, because test has ~23% more S2+S3 records per S1. Our competition features were learned at train
+  density. On a dev evaluated at test-like density, the current model drops 0.99086 -> 0.98975.
+- **Chose:** thin never-fitted train S1s (keep 78%) when computing competition features, so train density matches
+  test; fit and dev S1s keep all their own candidates. Cross-evaluated: +0.00064 at test-like density, -0.00004 at full.
+- **Alternatives:** re-weighting features (no clean target); ignoring it (leaves a known shift in our strongest features).
+- **Why:** features must mean the same thing on train and test (same principle as the 2026-09-25 full-population fix).
+
 ## 2026-09-25 — Cross-S1 ("competition") features must be computed over the FULL population
 - **Found:** E005's second stage gained +0.0071 on dev, mostly from "margin over the record's best competing S1".
   But in validation only the *sampled* S1s competed (dev: 31% of records had 2+ competing S1s, 1.5 lists per record),

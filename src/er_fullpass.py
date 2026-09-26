@@ -31,12 +31,14 @@ COMP = ("s2_other_s1_best", "s2_margin_vs_other_s1")
 
 
 def run_dir(exp: str) -> Path:
+    """Run folder runs/<exp> (created if missing)."""
     d = Path("runs") / exp
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def cmd_stage1(a: argparse.Namespace) -> None:
+    """Fit stage 1 on the chosen pool, then score every train (out-of-fold) and test S1 in resumable chunks."""
     from monitor import Heartbeat
 
     t0 = time.time()
@@ -79,6 +81,7 @@ def cmd_stage1(a: argparse.Namespace) -> None:
     hb.step(1, force=True, stage="score train")
 
     def score(split_obj: Split, name: str, fold_of_s1: np.ndarray | None, labels: set | None, step0: int) -> None:
+        """Retrieve, featurise and score one split chunk by chunk, keeping the top candidates per S1."""
         out = rd / f"{name}_chunks"
         out.mkdir(exist_ok=True)
         n = min(len(split_obj.s1), a.max_s1) if a.max_s1 else len(split_obj.s1)   # --max-s1: smoke tests only
@@ -117,7 +120,31 @@ def cmd_stage1(a: argparse.Namespace) -> None:
 
 
 def load_chunks(rd: Path, name: str, columns=None) -> list[pd.DataFrame]:
+    """Load a split's stage-1 chunk parquets in order."""
     return [pd.read_parquet(p, columns=columns) for p in sorted((rd / f"{name}_chunks").glob("*.parquet"))]
+
+
+def prune_rows(X: pd.DataFrame, split: str, eps: float, ce_dir: str = "", ce_eps: float = 0.0) -> pd.DataFrame:
+    """The final model's candidate set (= candidate_pairs.tsv): keep a pair when stage 1 finds it plausible (prob >= eps)
+    OR, with ce_dir, the cross-encoder does (score >= ce_eps). Features are built on the full stage-1 top-15 first, so
+    every split sees identically computed features; only the rows the final model trains/predicts on are filtered.
+
+    Organisers (26 Sep): a smaller candidate set per S1 ranks higher. Dev (E017): stage-1 >= 0.003 alone gives 6.43
+    candidates/S1 (recall 0.9961, F0.5 -0.00007); stage-1 >= 0.02 OR CE(E016) >= 0.01 gives 5.28/S1 (recall 0.9966,
+    F0.5 unchanged). The CE is a filter stage of the candidate cascade, scored on every stage-2 row (fold 0 + test).
+    """
+    if eps <= 0:
+        return X
+    keep = X.prob.to_numpy() >= eps
+    if ce_dir:
+        ce = pd.concat([pd.read_parquet(f, columns=["s1_id", "cand_id", "ce_score"])
+                        for f in sorted((Path(ce_dir) / f"{split}_ce").glob("*.parquet"))], ignore_index=True)
+        v = X[["s1_id", "cand_id"]].merge(ce, on=["s1_id", "cand_id"], how="left").ce_score.to_numpy()
+        if np.isnan(v).mean() > 0.001:
+            raise ValueError(f"{ce_dir} has no score for {np.isnan(v).mean():.2%} of {split} stage-2 rows")
+        keep |= np.nan_to_num(v, nan=0.0) >= ce_eps
+    log(f"{split}: candidate set {keep.sum() / X.s1_id.nunique():.2f}/S1 (was {len(X) / X.s1_id.nunique():.2f})")
+    return X[keep].reset_index(drop=True)
 
 
 def with_ce(chunks: list[pd.DataFrame], ce_dirs, split: str) -> list[pd.DataFrame]:
@@ -161,6 +188,7 @@ def name_rarity(split_obj: Split) -> tuple[pd.DataFrame, pd.DataFrame]:
     df = (ex.country.astype(str) + "|" + ex.tok.astype(str)).value_counts()
 
     def min_df(frame: pd.DataFrame) -> np.ndarray:
+        """Per record: document frequency of its rarest core-name token within its country."""
         e = frame.assign(tok=frame.name_core.str.split()).explode("tok")
         v = (e.country.astype(str) + "|" + e.tok.astype(str)).map(df).fillna(0.0)
         return v.groupby(level=0, sort=False).min().reindex(frame.index).to_numpy(np.float32)
@@ -180,17 +208,66 @@ def name_rarity(split_obj: Split) -> tuple[pd.DataFrame, pd.DataFrame]:
     return left, right
 
 
+def _norm2(split: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """v2 normalised strings (src.er_norm2 cache), indexed by entity_id: (S1, S2+S3)."""
+    L = pd.read_parquet(cache_dir() / f"{split}_s1_norm2.parquet").set_index("entity_id")
+    R = pd.concat([pd.read_parquet(cache_dir() / f"{split}_s{k}_norm2.parquet") for k in (2, 3)]).set_index("entity_id")
+    return L, R
+
+
+def norm2_pair_features(s1_ids, cand_ids, L2: pd.DataFrame, R2: pd.DataFrame, only: tuple | None = None) -> dict:
+    """E024 features from v2 strings: street types expanded, dotted legal forms collapsed (src/er_norm2.py)."""
+    from rapidfuzz import fuzz, process
+    a_n, b_n = L2.name_core2.reindex(s1_ids).to_numpy(), R2.name_core2.reindex(cand_ids).to_numpy()
+    a_a, b_a = L2.addr_norm2.reindex(s1_ids).to_numpy(), R2.addr_norm2.reindex(cand_ids).to_numpy()
+    spec = {"name2_ratio": (a_n, b_n, fuzz.ratio), "name2_tset": (a_n, b_n, fuzz.token_set_ratio),
+            "name2_tsort": (a_n, b_n, fuzz.token_sort_ratio), "addr2_tset": (a_a, b_a, fuzz.token_set_ratio),
+            "addr2_tsort": (a_a, b_a, fuzz.token_sort_ratio)}
+    return {k: (process.cpdist(x, y, scorer=f, workers=-1) / 100.0).astype(np.float32)
+            for k, (x, y, f) in spec.items() if only is None or k in only}
+
+
+def density_mask(allp: pd.DataFrame, always: set | None, keep_frac: float, seed: int = 11) -> np.ndarray:
+    """Rows of allp whose S1 stays in the competitor population: every S1 in `always` (fit + dev) plus a random
+    keep_frac of the others. E025: test has ~18% fewer S1s per candidate record than train (2.67 vs 3.27 for US and
+    India), so competition features learned on the full train population mean something else on test; dropping
+    never-fitted S1s turns their records into extra distractors, the way test looks."""
+    if keep_frac >= 1.0:
+        return np.ones(len(allp), bool)
+    ids = pd.Index(allp.s1_id.unique())
+    keep = pd.Series(np.random.default_rng(seed).random(len(ids)) < keep_frac, index=ids)
+    if always:
+        keep[keep.index.isin(list(always))] = True
+    return keep.reindex(allp.s1_id).to_numpy()
+
+
 def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | None,
-                  comp_cols: tuple[str, ...] = ()) -> pd.DataFrame:
+                  comp_cols: tuple[str, ...] = (), norm2: bool = False, comp_keep: float = 1.0) -> pd.DataFrame:
     """Stage-2 design matrix: sibling feats per chunk (chunks partition S1) + competition feats over ALL chunks.
 
     comp_cols: extra stage-1 columns (e.g. name_full_tset) whose record-level "best other S1" competition features
     are added, computed over the full population like the prob ones."""
     allp = pd.concat([c[["s1_id", "cand_id", "prob", *comp_cols]] for c in chunks], ignore_index=True)
+    # train only (keep_s1 given): test keeps its full, real population
+    dm = density_mask(allp, keep_s1, comp_keep if keep_s1 is not None else 1.0)
+    if not dm.all():
+        # competitors come from the reduced population; rows of dropped S1s still get features but are never used
+        full = allp
+        allp = allp[dm].reset_index(drop=True)
     comp = competition_features(allp)
     for col in comp_cols:
         comp.update(competition_features(allp, col))
+    if norm2:
+        L2, R2 = _norm2(split_obj.split)
+        allp["name2_ratio"] = norm2_pair_features(allp.s1_id, allp.cand_id, L2, R2, only=("name2_ratio",))["name2_ratio"]
+        comp.update(competition_features(allp, "name2_ratio"))
     comp_keys = list(comp)
+    if not dm.all():                                       # scatter back to the full row order (dropped rows: NaN)
+        for k in comp_keys:
+            v = np.full(len(full), np.nan, np.float32)
+            v[dm] = comp[k]
+            comp[k] = v
+        allp = full
     del allp
     parts, off = [], 0
     emb = {v: split_obj.embp[v] for v in split_obj.views}
@@ -203,6 +280,9 @@ def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | N
             F = cluster_features(cs[["s1_id", "cand_id", "prob"]], split_obj.right, emb)
             for k in comp_keys:
                 F[k] = comp[k][off:off + n][sel]
+            if norm2:
+                for k, v in norm2_pair_features(cs.s1_id, cs.cand_id, L2, R2).items():
+                    F[k] = v
             F = pd.concat([F, rl.reindex(cs.s1_id).reset_index(drop=True),
                            rr.reindex(cs.cand_id).reset_index(drop=True)], axis=1)
             parts.append(pd.concat([cs, F], axis=1))
@@ -245,7 +325,9 @@ def cached_frame(a: argparse.Namespace, name: str, build) -> pd.DataFrame:
     fd = Path(a.frames)
     fd.mkdir(parents=True, exist_ok=True)
     key = {"exp": a.exp, "ce_dir": list(a.ce_dir), "comp_cols": list(a.comp_cols), "views": list(a.views),
-           "fit_folds": list(a.fit_folds), "train_s1": a.train_s1}
+           "fit_folds": list(a.fit_folds), "train_s1": a.train_s1, **({"norm2": True} if getattr(a, "norm2", False) else {}),
+           **({"comp_keep": a.comp_keep} if getattr(a, "comp_keep", 1.0) < 1.0 else {}),
+}
     meta, path = fd / "frames.json", fd / f"{name}_frame.parquet"
     if meta.exists() and json.loads(meta.read_text(encoding="utf-8")) != key:
         raise ValueError(f"{fd} was built for {meta.read_text()}, not {key}; use another --frames dir")
@@ -260,6 +342,7 @@ def cached_frame(a: argparse.Namespace, name: str, build) -> pd.DataFrame:
 
 
 def cmd_stage2(a: argparse.Namespace) -> None:
+    """Build (or load cached) stage-2 frames, fit on the clean fit pool, report dev F0.5, optionally predict test."""
     from src.er_data import dataset_dir
     from src.er_submission import write_outputs
 
@@ -272,8 +355,9 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     fit_ids = set(rng.choice(pool, size=min(a.train_s1, len(pool)), replace=False))
     dev_ids = set(folds.index[folds.dev])
     X = cached_frame(a, "train", lambda: stage2_frames(d, with_ce(load_chunks(rd, "train"), a.ce_dir, "train"),
-                                                       fit_ids | dev_ids, tuple(a.comp_cols)))
+                                                       fit_ids | dev_ids, tuple(a.comp_cols), a.norm2, a.comp_keep))
     log(f"stage-2 frame {X.shape} [{time.time() - t0:.0f}s]")
+    X = prune_rows(X, "train", a.prune_eps, a.prune_ce_dir, a.prune_ce)
     is_dev = X.s1_id.isin(dev_ids).to_numpy()
     Xtr, Xdev = X[~is_dev].reset_index(drop=True), X[is_dev].reset_index(drop=True)
     y_tr, y_dev = d.truth(sorted(fit_ids)), d.truth(sorted(dev_ids))
@@ -332,7 +416,8 @@ def cmd_stage2(a: argparse.Namespace) -> None:
         return
     te = Split("test", a.model, a.views)
     Xt = cached_frame(a, "test", lambda: stage2_frames(te, with_ce(load_chunks(rd, "test"), a.ce_dir, "test"), None,
-                                                       tuple(a.comp_cols)))
+                                                       tuple(a.comp_cols), a.norm2))
+    Xt = prune_rows(Xt, "test", a.prune_eps, a.prune_ce_dir, a.prune_ce)
     ft = Xt.drop(columns=["prob"])
     ft["s1_prob"] = Xt.prob.to_numpy()
     probs = Xt[["s1_id", "cand_id"]].assign(prob=predict(models, ft).astype(np.float32))
@@ -355,6 +440,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    """CLI entry point: stage1 / stage2 subcommands."""
     ap = argparse.ArgumentParser(prog="python -m src.er_fullpass")
     sp = ap.add_subparsers(dest="cmd", required=True)
     for name in ("stage1", "stage2"):
@@ -381,6 +467,13 @@ def main() -> None:
     s2.add_argument("--tag", default="", help="suffix for saved dev predictions (dev_stage2_<tag>.parquet)")
     s2.add_argument("--frames", default="", help="cache dir for the stage-2 design matrices (load if present, else save)")
     s2.add_argument("--lgb-params", default="", help='JSON LightGBM overrides, e.g. {"num_leaves": 255}')
+    s2.add_argument("--prune-eps", type=float, default=0.0,
+                    help="final candidate set: keep pairs with stage-1 prob >= eps (e.g. 0.003 -> ~6.4 per S1)")
+    s2.add_argument("--prune-ce-dir", default="", help="CE scores for the OR-rule candidate filter (e.g. runs/E016-ce)")
+    s2.add_argument("--prune-ce", type=float, default=0.0, help="keep a pair if stage-1 prob >= --prune-eps OR CE >= this")
+    s2.add_argument("--comp-keep", type=float, default=1.0,
+                    help="E025: fraction of non-fit/dev train S1s kept as competitors (test-like density, e.g. 0.78)")
+    s2.add_argument("--norm2", action="store_true", help="E024: add v2-normalised name/address features (src/er_norm2.py)")
     s2.add_argument("--comp-cols", nargs="*", default=[],
                     help="stage-1 columns for extra full-population competition features, e.g. name_full_tset")
     s2.add_argument("--stage3", action="store_true",

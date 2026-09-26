@@ -30,6 +30,7 @@ BASE = "intfloat/multilingual-e5-small"
 
 
 def text(df: pd.DataFrame) -> pd.Series:
+    """Model input for a record: 'query: <name>, <address>' (the e5 'both' view)."""
     return "query: " + df.business_name + ", " + df.business_address
 
 
@@ -57,6 +58,7 @@ def batches(pairs: pd.DataFrame, bs: int, seed: int) -> list[np.ndarray]:
 
 
 def encode(model, tok, texts: list[str], max_len: int, device: str) -> torch.Tensor:
+    """Mean-pooled, L2-normalised embeddings for a batch of texts."""
     x = tok(texts, max_length=max_len, truncation=True, padding=True, return_tensors="pt").to(device)
     h = model(**x).last_hidden_state
     m = x["attention_mask"].unsqueeze(-1).to(h.dtype)
@@ -64,6 +66,7 @@ def encode(model, tok, texts: list[str], max_len: int, device: str) -> torch.Ten
 
 
 def cmd_train(a: argparse.Namespace) -> None:
+    """Train the bi-encoder with in-batch InfoNCE on folds 1-4 GT pairs (resumable, checkpointed)."""
     from monitor import Heartbeat
 
     out = Path(a.out)
@@ -121,6 +124,7 @@ def cmd_train(a: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    """CLI entry point for bi-encoder training."""
     ap = argparse.ArgumentParser(prog="python -m src.er_biencoder")
     sp = ap.add_subparsers(dest="cmd", required=True)
     t = sp.add_parser("train")

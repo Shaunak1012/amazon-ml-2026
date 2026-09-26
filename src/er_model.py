@@ -17,6 +17,7 @@ DEFAULT_PARAMS = {
 
 
 def feature_cols(X: pd.DataFrame) -> list[str]:
+    """Model feature columns: everything except ids and the label."""
     return [c for c in X.columns if c not in ("s1_id", "cand_id", "y")]
 
 
@@ -39,10 +40,12 @@ def train_oof(X: pd.DataFrame, y: np.ndarray, groups: np.ndarray, params: dict |
 
 
 def predict(models: list[lgb.Booster], X: pd.DataFrame) -> np.ndarray:
+    """Mean probability over the fold models (each at its best iteration)."""
     cols = models[0].feature_name()
     return np.mean([m.predict(X[cols], num_iteration=m.best_iteration) for m in models], axis=0)
 
 
 def importance(models: list[lgb.Booster]) -> pd.Series:
+    """Gain importance summed over fold models, normalised to 1."""
     imp = sum(pd.Series(m.feature_importance("gain"), index=m.feature_name()) for m in models)
     return (imp / imp.sum()).sort_values(ascending=False)

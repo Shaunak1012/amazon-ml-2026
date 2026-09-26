@@ -98,3 +98,27 @@ def test_cached_frame_builds_once_and_rejects_other_settings(tmp_path):
         cached_frame(a, "train", build)
     a.frames = ""
     assert cached_frame(a, "train", build).equals(first) and len(calls) == 2    # no cache dir: always build
+
+
+def test_density_mask_keeps_fit_dev_and_thins_others():
+    from src.er_fullpass import density_mask
+
+    allp = pd.DataFrame({"s1_id": [f"S1-{i}" for i in range(1000) for _ in range(2)], "cand_id": ["r"] * 2000})
+    always = {f"S1-{i}" for i in range(100)}
+    m = density_mask(allp, always, 0.5)
+    kept = set(allp.s1_id[m])
+    assert always <= kept and 0.45 < (len(kept) - 100) / 900 < 0.55
+    assert density_mask(allp, always, 1.0).all()
+
+
+def test_prune_rows_stage1_only_and_or_rule_with_ce(tmp_path):
+    from src.er_fullpass import prune_rows
+
+    X = pd.DataFrame({"s1_id": ["a", "a", "b", "b"], "cand_id": ["x", "y", "z", "w"], "prob": [0.5, 0.001, 0.004, 0.0]})
+    assert prune_rows(X, "train", 0.0) is X
+    assert prune_rows(X, "train", 0.003).cand_id.tolist() == ["x", "z"]
+    (tmp_path / "train_ce").mkdir()
+    pd.DataFrame({"s1_id": ["a", "a", "b", "b"], "cand_id": ["x", "y", "z", "w"],
+                  "ce_score": [0.9, 0.5, 0.0, 0.005]}).to_parquet(tmp_path / "train_ce" / "000.parquet")
+    kept = prune_rows(X, "train", 0.003, str(tmp_path), 0.01).cand_id.tolist()
+    assert kept == ["x", "y", "z"]          # y rescued by the CE (0.5 >= 0.01); w fails both

@@ -24,16 +24,19 @@ COLS = ["entity_id", "business_name", "business_address", "country"]
 
 
 def dataset_dir() -> Path:
+    """Folder holding the organisers' dataset (DATA_DIR/dataset)."""
     return get_paths().data / "dataset"
 
 
 def cache_dir() -> Path:
+    """Folder for parquet caches derived from the raw TSVs (created if missing)."""
     d = get_paths().data / "cache"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def read_tsv_arrow(path: Path) -> pa.Table:
+    """Read one TSV exactly as strings with pyarrow (tab separator, no quoting, no NA parsing)."""
     with open(path, encoding="utf-8") as f:
         header = f.readline().rstrip("\n").split("\t")
     return pacsv.read_csv(
@@ -46,6 +49,7 @@ def read_tsv_arrow(path: Path) -> pa.Table:
 
 
 def count_lines(path: Path) -> int:
+    """Count data lines in a file (used to verify every row was read)."""
     n = 0
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 24), b""):
@@ -54,6 +58,7 @@ def count_lines(path: Path) -> int:
 
 
 def build_cache(split: str, verify: bool = True) -> None:
+    """Convert a split's TSVs to parquet (and explode ground truth into pairs), checking row counts."""
     src, out = dataset_dir() / split, cache_dir()
     for k in (1, 2, 3):
         path = src / f"{split}_source{k}.tsv"
@@ -88,6 +93,7 @@ def load(split: str, with_gt: bool = True):
 
 
 def main() -> None:
+    """Build the parquet caches for train and test."""
     ap = argparse.ArgumentParser(prog="python -m src.er_data")
     ap.add_argument("--splits", nargs="+", default=["train", "test"])
     ap.add_argument("--no-verify", action="store_true")

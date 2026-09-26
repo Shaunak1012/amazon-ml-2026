@@ -35,6 +35,7 @@ HEADER = "entity_id\tbusiness_name\tbusiness_address\tcountry\n"
 
 
 def _typo(s: str, rng: random.Random) -> str:
+    """Inject one random character-level typo."""
     if len(s) < 4:
         return s
     i = rng.randrange(1, len(s) - 1)
@@ -42,6 +43,7 @@ def _typo(s: str, rng: random.Random) -> str:
 
 
 def _entity(country: str, rng: random.Random) -> dict:
+    """Draw a synthetic business (name, address, country)."""
     c = COUNTRY[country]
     full, abbr = rng.choice(c["suffix"])
     street_full, street_abbr = rng.choice(c["street"])
@@ -53,6 +55,7 @@ def _entity(country: str, rng: random.Random) -> dict:
 
 
 def _render(e: dict, rng: random.Random, noisy: bool) -> tuple[str, str]:
+    """Render a noisy copy of an entity as a source record."""
     core = list(e["core"])
     suffix = e["suffix"][1] if noisy and rng.random() < 0.5 else e["suffix"][0]
     if noisy:
@@ -79,6 +82,7 @@ def _render(e: dict, rng: random.Random, noisy: bool) -> tuple[str, str]:
 
 
 def make_split(countries: list[str], n: int, rng: random.Random, prefix: str) -> tuple[list, list, list, dict]:
+    """Build synthetic S1/S2/S3 sources and ground truth with the real schema."""
     s1, s2, s3, gt = [], [], [], {}
     c2 = c3 = 0
     for i in range(1, n + 1):
@@ -112,6 +116,7 @@ def make_split(countries: list[str], n: int, rng: random.Random, prefix: str) ->
 
 
 def write_split(out: Path, split: str, s1, s2, s3, gt) -> None:
+    """Write a synthetic split as organiser-format TSVs."""
     d = out / "dataset" / split
     d.mkdir(parents=True, exist_ok=True)
     for k, rows in ((1, s1), (2, s2), (3, s3)):
@@ -122,6 +127,7 @@ def write_split(out: Path, split: str, s1, s2, s3, gt) -> None:
 
 
 def generate(out: str | Path, n: int = 400, seed: int = 0) -> Path:
+    """Create a small synthetic dataset for tests (no real data needed)."""
     out = Path(out)
     rng = random.Random(seed)
     write_split(out, "train", *make_split(["US", "India"], n, rng, "train"))
@@ -130,6 +136,7 @@ def generate(out: str | Path, n: int = 400, seed: int = 0) -> Path:
 
 
 def main() -> None:
+    """CLI: write a synthetic dataset to a folder."""
     ap = argparse.ArgumentParser(prog="python -m src.er_synthetic")
     ap.add_argument("--out", default="data_synth")
     ap.add_argument("--n", type=int, default=400, help="train S1 entities (test gets n/2)")

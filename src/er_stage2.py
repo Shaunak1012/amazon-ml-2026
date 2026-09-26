@@ -17,6 +17,7 @@ from rapidfuzz import fuzz, process
 
 
 def _pairwise(a, b, scorer) -> np.ndarray:
+    """Element-wise rapidfuzz scorer over aligned string arrays, as float32 in [0, 1]."""
     return (process.cpdist(a, b, scorer=scorer, workers=-1) / 100.0).astype(np.float32)
 
 

@@ -29,12 +29,14 @@ MAX_LEN = {"name": 48, "addr": 64, "both": 96}
 
 
 def emb_dir() -> Path:
+    """Folder for embedding caches (DATA_DIR/cache/emb)."""
     d = cache_dir() / "emb"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def view_texts(df: pd.DataFrame, view: str) -> list[str]:
+    """Texts for an embedding view: name, address, or name + address, with the e5 'query:' prefix."""
     if view == "name":
         return ("query: " + df.business_name).tolist()
     if view == "addr":
@@ -43,6 +45,7 @@ def view_texts(df: pd.DataFrame, view: str) -> list[str]:
 
 
 class Encoder:
+    """Batched sentence encoder (multilingual e5 or a fine-tuned checkpoint) returning float16 embeddings."""
     def __init__(self, model: str = "small", device: str | None = None):
         """device=None: CUDA if available, else CPU with a warning. Embedding ~24M texts needs a GPU in practice
         (~21k texts/s on an RTX 5080; CPU is orders of magnitude slower)."""
@@ -110,6 +113,7 @@ def embed_file(split: str, k: int, view: str, model: str, chunk: int = 1_000_000
 
 
 def bench(n: int = 100_000) -> None:
+    """Measure encoding throughput on a sample (texts per second)."""
     df = pd.read_parquet(cache_dir() / "train_s2.parquet").sample(n, random_state=0)
     for model in ("small", "base"):
         enc = Encoder(model)
@@ -128,6 +132,7 @@ def bench(n: int = 100_000) -> None:
 
 
 def main() -> None:
+    """Embed the requested sources/views of a split and write resumable per-chunk caches."""
     ap = argparse.ArgumentParser(prog="python -m src.er_embed")
     ap.add_argument("--bench", action="store_true")
     ap.add_argument("--split", default="train")

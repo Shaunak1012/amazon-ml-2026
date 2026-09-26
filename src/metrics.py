@@ -20,7 +20,9 @@ _REGISTRY: dict[str, tuple[MetricFn, bool]] = {}
 
 
 def register(name: str, higher_is_better: bool):
+    """Decorator registering a metric function by name."""
     def deco(fn: MetricFn) -> MetricFn:
+        """Register fn in the metric registry and return it unchanged."""
         _REGISTRY[name] = (fn, higher_is_better)
         return fn
 
@@ -28,20 +30,24 @@ def register(name: str, higher_is_better: bool):
 
 
 def get_metric(name: str) -> tuple[MetricFn, bool]:
+    """Look up a registered metric by name."""
     if name not in _REGISTRY:
         raise KeyError(f"Unknown metric {name!r}. Known: {sorted(_REGISTRY)}")
     return _REGISTRY[name]
 
 
 def list_metrics() -> list[str]:
+    """Names of all registered metrics."""
     return sorted(_REGISTRY)
 
 
 def _arr(x) -> np.ndarray:
+    """Convert input to a float numpy array."""
     return np.asarray(x, dtype=np.float64)
 
 
 def _check(y_true: np.ndarray, y_pred: np.ndarray) -> None:
+    """Validate that y_true and y_pred have the same length and are non-empty."""
     if y_true.shape != y_pred.shape:
         raise ValueError(f"shape mismatch: {y_true.shape} vs {y_pred.shape}")
     if not np.all(np.isfinite(y_pred)):
@@ -66,6 +72,7 @@ def smape(y_true, y_pred) -> float:
 
 @register("rmse", higher_is_better=False)
 def rmse(y_true, y_pred) -> float:
+    """Root mean squared error."""
     a, f = _arr(y_true), _arr(y_pred)
     _check(a, f)
     return float(np.sqrt(np.mean((a - f) ** 2)))
@@ -73,6 +80,7 @@ def rmse(y_true, y_pred) -> float:
 
 @register("mae", higher_is_better=False)
 def mae(y_true, y_pred) -> float:
+    """Mean absolute error."""
     a, f = _arr(y_true), _arr(y_pred)
     _check(a, f)
     return float(np.mean(np.abs(a - f)))
@@ -80,6 +88,7 @@ def mae(y_true, y_pred) -> float:
 
 @register("rmsle", higher_is_better=False)
 def rmsle(y_true, y_pred) -> float:
+    """Root mean squared log error (log1p; negatives rejected)."""
     a, f = _arr(y_true), _arr(y_pred)
     _check(a, f)
     if (a < 0).any() or (f < 0).any():
@@ -98,6 +107,7 @@ def mape(y_true, y_pred) -> float:
 
 @register("r2", higher_is_better=True)
 def r2(y_true, y_pred) -> float:
+    """Coefficient of determination R^2."""
     a, f = _arr(y_true), _arr(y_pred)
     _check(a, f)
     ss_res = np.sum((a - f) ** 2)
@@ -108,11 +118,13 @@ def r2(y_true, y_pred) -> float:
 # ------------------------------------------------------------ classification
 @register("accuracy", higher_is_better=True)
 def accuracy(y_true, y_pred) -> float:
+    """Classification accuracy."""
     return float(np.mean(np.asarray(y_true) == np.asarray(y_pred)))
 
 
 @register("f1_macro", higher_is_better=True)
 def f1_macro(y_true, y_pred) -> float:
+    """Macro-averaged F1 over classes."""
     from sklearn.metrics import f1_score
 
     return float(f1_score(y_true, y_pred, average="macro"))
@@ -120,6 +132,7 @@ def f1_macro(y_true, y_pred) -> float:
 
 @register("f1_micro", higher_is_better=True)
 def f1_micro(y_true, y_pred) -> float:
+    """Micro-averaged F1."""
     from sklearn.metrics import f1_score
 
     return float(f1_score(y_true, y_pred, average="micro"))
@@ -127,6 +140,7 @@ def f1_micro(y_true, y_pred) -> float:
 
 @register("auc", higher_is_better=True)
 def auc(y_true, y_score) -> float:
+    """ROC AUC for binary labels."""
     from sklearn.metrics import roc_auc_score
 
     return float(roc_auc_score(y_true, y_score))
@@ -134,6 +148,7 @@ def auc(y_true, y_score) -> float:
 
 @register("logloss", higher_is_better=False)
 def logloss(y_true, y_prob) -> float:
+    """Binary log loss with clipped probabilities."""
     from sklearn.metrics import log_loss
 
     return float(log_loss(y_true, np.clip(_arr(y_prob), 1e-15, 1 - 1e-15)))

@@ -21,15 +21,18 @@ import pandas as pd
 
 @dataclass
 class Report:
+    """Validation result: errors, warnings and info lines."""
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     info: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
+        """True when there are no errors."""
         return not self.errors
 
     def __str__(self) -> str:
+        """Human-readable PASS/FAIL report."""
         lines = [f"[{'PASS' if self.ok else 'FAIL'}] submission validation"]
         lines += [f"  ERROR: {e}" for e in self.errors]
         lines += [f"  WARN:  {w}" for w in self.warnings]
@@ -39,6 +42,7 @@ class Report:
 
 def _read(path: str | Path) -> pd.DataFrame:
     # Read ids as strings so "007" vs 7 mismatches surface instead of silently coercing.
+    """Read a submission CSV/TSV as strings."""
     return pd.read_csv(path, dtype=str, keep_default_na=False)
 
 
@@ -51,6 +55,7 @@ def validate_submission(
     nonneg: bool = False,
     allow_reorder: bool = False,
 ) -> Report:
+    """Generic submission check against a sample file (columns, ids, NaNs, value ranges)."""
     r = Report()
     path = Path(path)
     if not path.exists():
@@ -152,6 +157,7 @@ def write_submission(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """CLI: validate a generic submission file."""
     ap = argparse.ArgumentParser(prog="python -m src.submission")
     sp = ap.add_subparsers(dest="cmd", required=True)
     v = sp.add_parser("validate", help="validate a predictions file")
