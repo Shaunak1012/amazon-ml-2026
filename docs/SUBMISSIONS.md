@@ -16,4 +16,4 @@ Gate before each submission (see CLAUDE.md → Submission discipline):
 | 5b | 2026-09-25 ~18:00 IST | probe-france-strict-of-sub03 | (not tagged; sub-03 predictions, France threshold 0.95) | probe | **0.949822** (+0.002224 vs sub-03 → France ≈ 0.905; French errors are false merges) | 1 | probe_france_strict_sub03 |
 | 6 | 2026-09-25 18:17 IST | E010-stage2-ce | `sub-06` | 0.9840 dev / 0.9838 OOF | **0.975154** (leader 0.986955; rank 53) | 0 | sub_E010_ce |
 | 7 | 2026-09-25 22:10 IST | E013-rarity | `sub-07` | 0.9844 dev / 0.9843 OOF | **0.975726** (+0.000572 vs sub-06) | 4 (26 Sep) | sub_E013_rarity |
-| 8 | 2026-09-26 06:11 IST | E015-ftview | `sub-08` | 0.9898 |  | ? | sub_E015 |
+| 8 | 2026-09-26 06:11 IST | E015-ftview | `sub-08` | 0.9898 dev / 0.9896 OOF | **0.983** (+0.007 vs sub-07; dev->LB gap 0.0068, was 0.0087) | 3 (26 Sep; assumes sub-07 counted on 26 Sep) | sub_E015 |
