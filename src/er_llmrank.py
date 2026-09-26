@@ -130,11 +130,12 @@ def _yes_no_ids(tok) -> tuple[int, int]:
 
 
 def _last_logits(model, enc):
-    """Logits at the last non-pad position of each row (right padding)."""
-    import torch
-    out = model(**enc).logits
-    idx = enc["attention_mask"].sum(1) - 1
-    return out[torch.arange(out.shape[0], device=out.device), idx]
+    """Logits at the last position only (LEFT padding, so it is each row's real last token).
+
+    logits_to_keep=1 matters: full logits are vocab (151k) x tokens x batch floats, ~6 GB per batch of 64, which
+    spilled the 16 GB GPU into system RAM and stalled scoring at 0% GPU (26 Sep). RoPE is relative, so left padding
+    does not change attention between real tokens."""
+    return model(**enc, logits_to_keep=1).logits[:, -1]
 
 
 def cmd_train(a: argparse.Namespace) -> None:
@@ -150,7 +151,7 @@ def cmd_train(a: argparse.Namespace) -> None:
     if a.max_rows:
         df = df.head(a.max_rows)
     tok = AutoTokenizer.from_pretrained(a.base)
-    tok.padding_side = "right"
+    tok.padding_side = "left"
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     yes, no = _yes_no_ids(tok)
@@ -204,7 +205,7 @@ def cmd_score(a: argparse.Namespace) -> None:
     out = Path(a.out) / f"llm_{a.split}"
     out.mkdir(parents=True, exist_ok=True)
     tok = AutoTokenizer.from_pretrained(a.lora)
-    tok.padding_side = "right"
+    tok.padding_side = "left"
     yes, no = _yes_no_ids(tok)
     model = AutoModelForCausalLM.from_pretrained(a.base, torch_dtype=torch.bfloat16).cuda()
     model = PeftModel.from_pretrained(model, a.lora).merge_and_unload().eval()
