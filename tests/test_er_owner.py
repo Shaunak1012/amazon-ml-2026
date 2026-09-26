@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.er_owner import K_MAX, build_groups, collate, label_groups, make_example, owner_model, training_records
+from src.er_owner import K_MAX, build_groups, collate, exclude_fold0, label_groups, make_example, owner_model
 
 
 def pairs():
@@ -28,10 +28,12 @@ def test_labels_owner_slot_or_none():
     assert lab["S2-x"] == 1 and lab["S3-y"] == K_MAX          # owner outside the list -> none slot
 
 
-def test_training_records_exclude_fold0_contact():
-    fold = pd.Series({"S1-a": 0, "S1-b": 1, "S1-c": 2, "S1-d": 3})
-    owner = pd.Series({"S2-z": "S1-d"})
-    assert training_records(pairs(), owner, fold) == {"S2-z"}   # x, y were retrieved by fold-0 S1-a
+def test_exclude_fold0_uses_slot_lists_and_owner():
+    g = pd.DataFrame({"cand_id": ["r1", "r2", "r3"],
+                      "s1_ids": [["S1-a", "S1-b"], ["S1-b", "S1-c"], ["S1-c", "S1-d"]]})
+    fold = pd.Series({"S1-a": 0, "S1-b": 1, "S1-c": 2, "S1-d": 3, "S1-e": 0})
+    owner = pd.Series({"r3": "S1-e"})                         # r3's owner is a fold-0 S1 outside its list
+    assert list(exclude_fold0(g, owner, fold).cand_id) == ["r2"]
 
 
 def test_make_example_layout():

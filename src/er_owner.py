@@ -69,12 +69,17 @@ def label_groups(g: pd.DataFrame, owner: pd.Series) -> np.ndarray:
     return lab
 
 
-def training_records(pairs: pd.DataFrame, owner: pd.Series, fold: pd.Series) -> set:
-    """Records usable for training: never retrieved by a fold-0 S1, and owner (if any) not in fold 0."""
+def exclude_fold0(g: pd.DataFrame, owner: pd.Series, fold: pd.Series) -> pd.DataFrame:
+    """Training groups: drop every group whose SLOT LIST contains a fold-0 S1, or whose true owner is in fold 0.
+
+    A fold-0 pair only ever receives an owner score when its S1 is in the record's slot list, so this keeps every
+    fold-0 (stage-2 fit + dev) owner score out-of-sample, without discarding the crowded records a stricter rule
+    (any fold-0 S1 in the full top-15 retrieval) removed: OW01 kept only 48k groups that way."""
     f0 = set(fold.index[fold.to_numpy() == 0])
-    touched = set(pairs.cand_id[pairs.s1_id.isin(f0)])
-    bad_owner = set(owner.index[owner.isin(f0)])
-    return set(pairs.cand_id.unique()) - touched - bad_owner
+    own = owner.reindex(g.cand_id).to_numpy()
+    keep = np.array([not (set(lst) & f0) and not (isinstance(o, str) and o in f0) for lst, o in zip(g.s1_ids, own)],
+                    dtype=bool)
+    return g[keep].reset_index(drop=True)
 
 
 # ------------------------------------------------------------------------------------------------ sequences
@@ -159,12 +164,13 @@ def cmd_prep(a: argparse.Namespace) -> None:
     folds = pd.read_parquet(cache_dir() / "folds_s1_k5.parquet").set_index("s1_id").fold
     gt = pd.read_parquet(cache_dir() / "train_gt_pairs.parquet")
     owner = gt.drop_duplicates("cand_id").set_index("cand_id").s1_id
-    usable = training_records(pairs, owner, folds)
-    tr = build_groups(pairs, a.k_max, a.min_prob, a.contest_min, records=usable)
+    allg = build_groups(pairs, a.k_max, a.min_prob, a.contest_min)
+    tr = exclude_fold0(allg, owner, folds)
     tr["label"] = label_groups(tr, owner)
     tr.to_parquet(out / "train_groups.parquet", index=False)
-    print(f"train groups {len(tr):,} (usable records {len(usable):,}); none-share {(tr.label == K_MAX).mean():.3f};"
+    print(f"train groups {len(tr):,} of {len(allg):,} contested; none-share {(tr.label == K_MAX).mean():.3f};"
           f" slots/record {tr.s1_ids.str.len().mean():.2f} [{time.time() - t0:.0f}s]", flush=True)
+    del allg
     frame_recs = set(pd.read_parquet(a.frame, columns=["cand_id"]).cand_id)
     ig = build_groups(pairs, a.k_max, a.min_prob, a.contest_min, records=frame_recs)
     ig.to_parquet(out / "infer_train_groups.parquet", index=False)
@@ -219,19 +225,25 @@ def cmd_train(a: argparse.Namespace) -> None:
         step = st["step"]
         print(f"resumed at step {step}/{steps}", flush=True)
     rng = np.random.default_rng(0)
-    order = rng.permutation(len(g))
+    glen = np.array([len(table[c]) + sum(len(table[x]) + 2 for x in lst) for c, lst in zip(g.cand_id, g.s1_ids)])
+    perm = rng.permutation(len(g))
+    mega = 50 * a.batch
+    perm = np.concatenate([m[np.argsort(glen[m], kind="stable")] for m in np.array_split(perm, max(1, len(g) // mega))])
+    batches = [perm[i:i + a.batch] for i in range(0, len(perm), a.batch)]
+    batches = [batches[j] for j in rng.permutation(len(batches))]      # length-bucketed, random batch order
+    steps = len(batches)
     bos, eos, pad = tok.cls_token_id, tok.sep_token_id, tok.pad_token_id
     loss_fn = torch.nn.CrossEntropyLoss()
     model.train()
     t0, run_loss, run_acc, seen = time.time(), 0.0, 0.0, 0
     while step < steps:
-        ix = order[step * a.batch:(step + 1) * a.batch]
+        ix = batches[step]
         exs, labs, ns = [], [], []
         for i in ix:
             lst, lab = list(g.s1_ids[i]), int(g.label[i])
-            perm = np.random.default_rng(step * 100_003 + int(i)).permutation(len(lst))     # shuffled slots
-            lst = [lst[p] for p in perm]
-            lab = K_MAX if lab == K_MAX else int(np.flatnonzero(perm == lab)[0])
+            sp = np.random.default_rng(step * 100_003 + int(i)).permutation(len(lst))       # shuffled slots
+            lst = [lst[p] for p in sp]
+            lab = K_MAX if lab == K_MAX else int(np.flatnonzero(sp == lab)[0])
             exs.append(make_example(table[g.cand_id[i]], [table[s] for s in lst], bos, eos))
             labs.append(lab)
             ns.append(len(lst))
