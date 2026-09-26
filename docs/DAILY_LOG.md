@@ -8,32 +8,28 @@ mid-way should catch up in 2 minutes. Also keep the GPU queue current.
 |---|---|---|---|
 | — | — | — | — |
 
-## HANDOFF — 2026-09-25 22:15 IST (read this first in a new session)
-**Leaderboard:** best = sub-06 **0.975154** (rank 53; #1 = 0.986955; top-50 = PPI cut). Probes: sub-03 0.947598,
-France-emptied 0.821 (France ≈ 0.89), France-strict 0.949822. Slots: 0 left on 25 Sep; **5 fresh on 26 Sep**.
+## HANDOFF — 2026-09-26 12:10 IST (read this first in a new session)
+**Leaderboard:** best = sub-08 **0.983** (E015). #1 = 0.988419. sub-07 0.975726. Slots on 26 Sep: **3 left** (assumes
+sub-07 counted on 26 Sep). Keep >= 2 for 27 Sep.
 
-**sub-07 uploaded 26 Sep 00:0x → LB 0.975726 (new best, +0.00057 vs sub-06); 4 slots left on 26 Sep.** Was: `submissions/sub_E013_rarity/matching_results.tsv` = tag **sub-07**
-(E013: sub-06 + name-rarity features, dev F0.5 0.9844; both validators pass). Expected LB ~0.9755.
+**E015 (sub-08):** fine-tuned bi-encoder view `both_ft` (E014) added to retrieval + features; stage 1 AND stage 2 fit on
+**fold 0 minus dev** (341k S1 unseen by the bi-encoder and the CE) because the ft cosine is inflated on folds 1-4.
+Dev F0.5 **0.9898** (OOF 0.9896; US 0.9892, India 0.9907). Stage 3 (anchors from stage-2 probs) = no gain.
+Artefacts: `runs/E015/` (chunks, models), E015's own stage-2 outputs backed up in `runs/E015/sub08_E015/`.
 
-**Running now (from the old chat session; keep that window open until it finishes):**
-`E014` fine-tuned bi-encoder chain → `runs/E014-bienc/model` → train embeddings `data/cache/emb/train_s*_both_ft.npy`
-→ prints dev recall gain (`scripts/recall_gain.py --view both --tag ft --k 10 20`). Check with:
-`ls runs/E014-*; cat runs/E014-bienc-train/exit.json; tail runs/E014-bienc-embed-train/train.log`.
+**Running now:** E016 = cross-encoder v2 (multilingual-e5-base, 3M pairs, folds 1-4, E015 hard negatives;
+`runs/E016-ce-base/model`). Chain `scripts/chains/e016_score.sh` scores fold 0 + test -> `runs/E016-ce/`, then
+`scripts/chains/e016_stage2.sh` runs stage 2 with BOTH CEs (`--ce-dir runs/E015-ce runs/E016-ce`) -> `submissions/sub_E016`
+(~13:30). It writes into runs/E015 (stage2.json etc.). Check: `cat runs/E016-score-chain.log runs/E016-stage2-chain.log`.
+Submit E016 only if dev beats 0.9898 by more than noise (~0.0003).
 
-**E014 RESULT (22:42): ft view dev recall alone top-10 = 0.9959; union 0.9740 -> 0.9976 (recovers 90.7% of misses). DO THE REBUILD.** Test embedding with the ft model was started from the old session (check `runs/E014-bienc-embed-test/exit.json`; files `data/cache/emb/test_s*_both_ft.npy`). Rebuild steps:
-1. embed TEST with the ft model (`python -m src.er_embed --split test --sources 1 2 3 --view both --model runs/E014-bienc/model --tag ft`);
-2. stage 1 over the full population with the ft view added (needs a `--views` option in `src/er_fullpass.py` stage1 and
-   `Split(views=...)`; ft files use suffix `ft`, so Split must map view→suffix, e.g. views name/addr/both(small)+both(ft));
-3. CE A scores for the new chunks (train folds 0,3 and test), then `stage2 --ce-dir ... --fit-folds 3` (+ rarity is built in).
-If the gain is small, skip the rebuild.
+**Ops lessons:** PC slept 09:21-12:00 and froze jobs -> `scripts/keep_awake.ps1` while jobs run (and set Sleep=Never).
+RAM is the bottleneck (64 GB): stage 2 peaks ~48 GB; `scripts/ram_guard.ps1` suspends a lower-priority job when low;
+`scripts/pause_jobs.ps1 pause|resume|status` pauses everything. Stage 1 now reuses saved fold models on restart.
 
-**Error analysis (E010 dev, loss 0.016):** 51% true pairs never retrieved (India 3x US), 37% retrieved but rejected,
-10% false matches. Empty-address candidates are a big share of rejects/FPs (→ name-rarity features, E013).
-Char n-gram view (E012) only +0.4pt recall — not worth a rebuild alone.
-
-**Key facts:** pipeline & commands in docs/REPRODUCE.md; experiments in docs/EXPERIMENTS.md; ledger in
-docs/SUBMISSIONS.md; rules/compliance in docs/COMPETITION.md. Cross-S1 features must be computed over the full
-population (DECISIONS 2026-09-25). Portal takes the TSV only. Git: sequential commits, user as sole author, no AI mentions.
+**Next ideas (ranked):** 1) E016 result; 2) France: pseudo-label fine-tune on confident French test pairs (rules say
+models "fine-tuned only on the provided data" -> test inputs are provided data; confirm wording first); 3) second
+bi-encoder view / k=20 for the last recall; 4) final approach doc + zip (`scripts/make_submission_zip.py`).
 
 ## 2026-09-25 (Day 1) — end of day
 - **Leaderboard:** sub-06 **0.975154** (leader 0.986955). sub-03 0.947598; France probes: France-emptied 0.821,
