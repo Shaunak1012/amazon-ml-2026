@@ -5,18 +5,17 @@ set -u
 cd "$(dirname "$0")/../.."
 PY=.venv/Scripts/python.exe
 ok() { grep -q '"returncode": 0' "runs/$1/exit.json" 2>/dev/null; }
-until [ -f runs/E020-score/exit.json ]; do sleep 30; done
-ok E020-score || echo "note: E020 scoring failed; the GPU is free anyway, continuing with E022"
-$PY -m monitor.launch --run E022-smoke --quiet -- $PY -m src.er_llmrank train --data runs/E021-llm/data \
+# GPU free since E020 scoring finished (15:54). Data: (0.1, 0.9) CE band, 40k train prompts (runs/E021-llm/data10).
+$PY -m monitor.launch --run E022-smoke --quiet -- $PY -m src.er_llmrank train --data runs/E021-llm/data10 \
     --out runs/E022-smoke/lora --max-rows 200 --batch 8
 ok E022-smoke || { echo "CHAIN STOP: smoke test failed"; exit 1; }
 echo "E022 smoke ok $(date +%H:%M)"
-$PY -m monitor.launch --run E022-train --quiet -- $PY -m src.er_llmrank train --data runs/E021-llm/data \
+$PY -m monitor.launch --run E022-train --quiet -- $PY -m src.er_llmrank train --data runs/E021-llm/data10 \
     --out runs/E022-llm/lora --batch 16 --ckpt-every 500
 ok E022-train || { echo "CHAIN STOP: LoRA training failed"; exit 1; }
 echo "E022 train ok $(date +%H:%M)"
 for split in train test; do
-  $PY -m monitor.launch --run E022-score-$split --quiet -- $PY -m src.er_llmrank score --data runs/E021-llm/data \
+  $PY -m monitor.launch --run E022-score-$split --quiet -- $PY -m src.er_llmrank score --data runs/E021-llm/data10 \
       --lora runs/E022-llm/lora --split $split --out runs/E022-llm --batch 64
   ok E022-score-$split || { echo "CHAIN STOP: scoring $split failed"; exit 1; }
   echo "E022 score $split ok $(date +%H:%M)"
