@@ -7,10 +7,10 @@ BUCKET=amazon-sagemaker-548171706001-ap-southeast-2-bjmz86wfr8l6oy
 REPO=$HOME/amazon-ml-2026
 cd "$HOME"
 
-# 1. repo on the shreyas branch (read-only here: this box never pushes)
-if [ ! -d "$REPO/.git" ]; then git clone -q https://github.com/Shaunak1012/amazon-ml-2026.git "$REPO"; fi
-cd "$REPO" && git fetch -q --all && git checkout -q shreyas && git reset -q --hard origin/shreyas
-echo "repo at $(git log -1 --oneline)"
+# 1. code: snapshot of the shreyas branch from S3 (no GitHub auth on this box; it never pushes)
+mkdir -p "$REPO" && cd "$REPO"
+aws s3 cp --only-show-errors "s3://$BUCKET/shreyas/code/repo.tar.gz" - | tar -xz -C "$REPO"
+echo "code at $(cat COMMIT 2>/dev/null)"
 
 # 2. python env (CPU only)
 if [ ! -x "$REPO/.venv/bin/python" ]; then python3 -m venv "$REPO/.venv"; fi
@@ -33,5 +33,6 @@ wc -l data/dataset/test/test_source1.tsv
 
 # 4. runner (restart if already running)
 pkill -f scripts/sm/runner.py || true
+mkdir -p data/cache
 nohup "$REPO/.venv/bin/python" scripts/sm/runner.py --bucket "$BUCKET" > "$HOME/runner.out" 2>&1 &
 sleep 3 && echo "runner pid $(pgrep -f scripts/sm/runner.py)" && echo "BOOTSTRAP OK: you can close this terminal."
