@@ -56,10 +56,10 @@ def truth(s1_ids) -> dict[str, set[str]]:
 
 
 def add_extra(X: pd.DataFrame, dirs: list[str], split: str) -> pd.DataFrame:
-    """Left-merge extra pair features (e.g. src.er_owner <dir>/<split>_owner.parquet) by (s1_id, cand_id); rows the
+    """Left-merge extra pair features (src.er_owner <dir>/<split>_owner.parquet) by (s1_id, cand_id); rows the
     extra model did not score get NaN, which LightGBM handles natively."""
     for d in dirs:
-        f = next(Path(d).glob(f"{split}_*.parquet"))
+        f = Path(d) / f"{split}_owner.parquet"          # explicit: the dir also holds <split>_groups.parquet
         E = pd.read_parquet(f)
         n = len(X)
         X = X.merge(E, on=["s1_id", "cand_id"], how="left", validate="one_to_one")
