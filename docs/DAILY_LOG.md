@@ -8,28 +8,25 @@ mid-way should catch up in 2 minutes. Also keep the GPU queue current.
 |---|---|---|---|
 | — | — | — | — |
 
-## HANDOFF — 2026-09-26 12:10 IST (read this first in a new session)
-**Leaderboard:** best = sub-08 **0.983322** (E015). #1 = 0.990556 (26 Sep midday). sub-07 0.975726. Slots on 26 Sep: **3 left** (assumes
-sub-07 counted on 26 Sep). Keep >= 2 for 27 Sep.
+## HANDOFF — 2026-09-26 22:05 IST (read this first in a new session)
+**Leaderboard:** best = sub-10 (E020) **0.985645**; leader 0.990748. Our slots: ~1/day (team shares 5/day).
+**Goal (user):** candidate_pairs ~4.71/S1 (recall 0.9963, reduction 99.99988%) and matching as close as possible to the
+0.99892 dev ceiling. Report BOTH files for every experiment (dev F0.5, LB, cands/S1, candidate recall, ceiling).
 
-**E015 (sub-08):** fine-tuned bi-encoder view `both_ft` (E014) added to retrieval + features; stage 1 AND stage 2 fit on
-**fold 0 minus dev** (341k S1 unseen by the bi-encoder and the CE) because the ft cosine is inflated on folds 1-4.
-Dev F0.5 **0.9898** (OOF 0.9896; US 0.9892, India 0.9907). Stage 3 (anchors from stage-2 probs) = no gain.
-Artefacts: `runs/E015/` (chunks, models), E015's own stage-2 outputs backed up in `runs/E015/sub08_E015/`.
+**Kept for the final build (E023):** E020 CE dirs (runs/E015-ce + runs/E020-ce) + E022 reranker feature (Qwen3-4B LoRA,
+dev 0.99116, +0.00019) + E024 --norm2 + E025 --comp-keep 0.78 (+0.00064 at test-like density) + comp-cols
+(cos_name name_ratio name_jw name_full_tset name_tsort) + candidate filter --prune-eps 0.2 --prune-ce-dir runs/E016-ce
+--prune-ce 0.01 (4.71/S1). E026 tuning = no gain (defaults). Stage-2 seed averaging still to add to cmd_stage2.
 
-**Running now:** E016 = cross-encoder v2 (multilingual-e5-base, 3M pairs, folds 1-4, E015 hard negatives;
-`runs/E016-ce-base/model`). Chain `scripts/chains/e016_score.sh` scores fold 0 + test -> `runs/E016-ce/`, then
-`scripts/chains/e016_stage2.sh` runs stage 2 with BOTH CEs (`--ce-dir runs/E015-ce runs/E016-ce`) -> `submissions/sub_E016`
-(~13:30). It writes into runs/E015 (stage2.json etc.). Check: `cat runs/E016-score-chain.log runs/E016-stage2-chain.log`.
-Submit E016 only if dev beats 0.9898 by more than noise (~0.0003).
+**Running overnight (chains, watched):** runs/E022b-chain.log (E022 test scoring -> to-ce -> E022-dev), then
+runs/E022x-chain.log (reranker on wider band, data runs/E021-llm/data_ext -> merged feature runs/E022-llmce-full, ~07:00).
+Batch 32 (batch 64 spilled GPU memory). Keep-awake on; don't close the app.
 
-**Ops lessons:** PC slept 09:21-12:00 and froze jobs -> `scripts/keep_awake.ps1` while jobs run (and set Sleep=Never).
-RAM is the bottleneck (64 GB): stage 2 peaks ~48 GB; `scripts/ram_guard.ps1` suspends a lower-priority job when low;
-`scripts/pause_jobs.ps1 pause|resume|status` pauses everything. Stage 1 now reuses saved fold models on restart.
-
-**Next ideas (ranked):** 1) E016 result; 2) France: pseudo-label fine-tune on confident French test pairs (rules say
-models "fine-tuned only on the provided data" -> test inputs are provided data; confirm wording first); 3) second
-bi-encoder view / k=20 for the last recall; 4) final approach doc + zip (`scripts/make_submission_zip.py`).
+**Tomorrow (27 Sep):** move monitor/ into src/ after chains end; offline flag; seed averaging; E023 build with --out
+-> validators -> sub-11 (~10:00); final refit incl. dev S1s; README/REPRODUCE (full dependency chain incl. E016
+pseudo-label source); Documentation_template.md (2-page core + appendices; need team names); zip via
+scripts/make_submission_zip.py (dry-run passed); final upload <= 22:00; final zip from the same commit/files.
+Rules/compliance: docs/COMPETITION.md (organiser update on candidate size included). Docstrings done (107).
 
 ## 2026-09-25 (Day 1) — end of day
 - **Leaderboard:** sub-06 **0.975154** (leader 0.986955). sub-03 0.947598; France probes: France-emptied 0.821,
