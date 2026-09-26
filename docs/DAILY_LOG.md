@@ -27,6 +27,7 @@ optional; both TSVs from ONE stage-2 run; zip from one commit/tag; no stage-2 la
    must be byte-identical to E023a-core (chain prints it).
 Watchdogs: GPU-spill + health (background), Discord via monitor.notify. Keep-awake on.
 
+**Teammates' extras (27 Sep):** CE03 (e5-large CE) and OW03 (owner model) are trained by a teammate on their GPU. Integrate only if delivered by ~15:00 as per-chunk parquet aligned to runs/E015/{train,test}_chunks (s1_id, cand_id, ce_score; fold 0 + all test; like runs/E016-ce), trained on folds 1-4 only (fold 0 unseen), MIT/Apache <= 8B: add as an extra --ce-dir to the E023 stage-2 command (new --frames dir, ~75 min) and keep only if dev at test-like density improves. SH01 = our E025 (already in). Seed averaging = add in the morning.
 **Morning steps (in order):** (1) check chain logs + validators; record E023a dev (test-like density) + cands/S1.
 (2) G0: dev of runs/E022-llmce-full vs core; if full >= core, rebuild E023a with it (~75 min, new --frames dir).
 (3) Slot 1 = E023a (ST or not per organisers), tag sub-12, safety zip from the tag (scripts/make_submission_zip.py
