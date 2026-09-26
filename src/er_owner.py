@@ -183,15 +183,15 @@ def cmd_prep(a: argparse.Namespace) -> None:
     (out / "prep.json").write_text(json.dumps(vars(a), indent=2))
 
 
-def _setup(threads: int):
+def _setup(threads: int, model_name: str = MODEL):
     """Torch thread count + model/tokenizer for CPU (or GPU if present)."""
     import torch
     from transformers import AutoModel, AutoTokenizer
 
     if threads:
         torch.set_num_threads(threads)
-    tok = AutoTokenizer.from_pretrained(MODEL)
-    enc = AutoModel.from_pretrained(MODEL)
+    tok = AutoTokenizer.from_pretrained(model_name)
+    enc = AutoModel.from_pretrained(model_name)
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch, tok, enc, dev
 
@@ -201,7 +201,7 @@ def cmd_train(a: argparse.Namespace) -> None:
     from src.er_crossenc import load_sources
 
     d = Path(a.dir)
-    torch, tok, enc, dev = _setup(a.threads)
+    torch, tok, enc, dev = _setup(a.threads, a.model)
     g = pd.read_parquet(d / "train_groups.parquet")
     if len(g) > a.n:
         g = g.sample(a.n, random_state=0).reset_index(drop=True)
@@ -211,7 +211,7 @@ def cmd_train(a: argparse.Namespace) -> None:
     del left, right
     model = owner_model(enc, enc.config.hidden_size).to(dev)
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=0.01)
-    steps = math.ceil(len(g) / a.batch)
+    steps = a.epochs * math.ceil(len(g) / a.batch)
     warm = max(1, int(0.05 * steps))
     sched = torch.optim.lr_scheduler.LambdaLR(
         opt, lambda s: min((s + 1) / warm, max(0.0, (steps - s) / max(1, steps - warm))))
@@ -224,13 +224,16 @@ def cmd_train(a: argparse.Namespace) -> None:
         sched.load_state_dict(st["sched"])
         step = st["step"]
         print(f"resumed at step {step}/{steps}", flush=True)
-    rng = np.random.default_rng(0)
     glen = np.array([len(table[c]) + sum(len(table[x]) + 2 for x in lst) for c, lst in zip(g.cand_id, g.s1_ids)])
-    perm = rng.permutation(len(g))
     mega = 50 * a.batch
-    perm = np.concatenate([m[np.argsort(glen[m], kind="stable")] for m in np.array_split(perm, max(1, len(g) // mega))])
-    batches = [perm[i:i + a.batch] for i in range(0, len(perm), a.batch)]
-    batches = [batches[j] for j in rng.permutation(len(batches))]      # length-bucketed, random batch order
+    batches = []
+    for ep in range(a.epochs):                                        # length-bucketed, random batch order per epoch
+        rng = np.random.default_rng(ep)
+        perm = rng.permutation(len(g))
+        perm = np.concatenate([m[np.argsort(glen[m], kind="stable")]
+                               for m in np.array_split(perm, max(1, len(g) // mega))])
+        eb = [perm[i:i + a.batch] for i in range(0, len(perm), a.batch)]
+        batches += [eb[j] for j in rng.permutation(len(eb))]
     steps = len(batches)
     bos, eos, pad = tok.cls_token_id, tok.sep_token_id, tok.pad_token_id
     loss_fn = torch.nn.CrossEntropyLoss()
@@ -273,7 +276,7 @@ def cmd_train(a: argparse.Namespace) -> None:
                         "step": step}, tmp)
             os.replace(tmp, ck)
     torch.save(model.state_dict(), d / "owner_model.pt")
-    (d / "train.json").write_text(json.dumps({"groups": len(g), "steps": steps, **vars(a)}, indent=2))
+    (d / "train.json").write_text(json.dumps({"groups": len(g), "steps": steps, "device": dev.type, **vars(a)}, indent=2))
     print("TRAIN DONE", flush=True)
 
 
@@ -282,7 +285,9 @@ def cmd_score(a: argparse.Namespace) -> None:
     from src.er_crossenc import load_sources
 
     d = Path(a.dir)
-    torch, tok, enc, dev = _setup(a.threads)
+    tj = d / "train.json"
+    model_name = json.loads(tj.read_text()).get("model", MODEL) if tj.exists() else MODEL
+    torch, tok, enc, dev = _setup(a.threads, model_name)
     gp = d / f"infer_{a.split}_groups.parquet"
     if not gp.exists() and a.split == "test" and a.test_frame:
         prep = json.loads((d / "prep.json").read_text())
@@ -346,6 +351,8 @@ def main() -> None:
         q.add_argument("--bf16", action="store_true")
     t = sp.choices["train"]
     t.add_argument("--n", type=int, default=200_000)
+    t.add_argument("--model", default=MODEL, help="HF encoder, e.g. intfloat/multilingual-e5-base (MIT) on a GPU")
+    t.add_argument("--epochs", type=int, default=1)
     t.add_argument("--batch", type=int, default=32)
     t.add_argument("--lr", type=float, default=5e-5)
     t.add_argument("--ckpt-every", type=int, default=200)

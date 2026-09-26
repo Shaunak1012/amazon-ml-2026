@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# One-time setup of a remote GPU box WITHOUT AWS keys (links are presigned, scoped, 7-day). Idempotent.
+# The user runs it in their own SSH session:   curl -s "<bootstrap link>" | bash
+set -uo pipefail
+BASE=${BASE:-$HOME/Desktop/aml}
+mkdir -p "$BASE/repo" && cd "$BASE/repo" || exit 1
+echo "== code"
+curl -sf "__CODE_URL__" | tar -xz && cat COMMIT || { echo "code download failed (no internet from this box?)"; exit 1; }
+echo "__POST_B64__" | base64 -d > "$BASE/post.json" && chmod 600 "$BASE/post.json"
+echo "== python: $(python3 --version 2>&1)"
+if [ ! -x .venv/bin/python ]; then
+  python3 -m venv .venv 2>/dev/null || { command -v conda >/dev/null && conda create -y -q -p "$PWD/.venv" python=3.12 >/dev/null; }
+fi
+[ -x .venv/bin/python ] || { echo "NO VENV: python3-venv missing and no conda; tell Claude"; exit 1; }
+PY=.venv/bin/python
+$PY -m pip install -q --upgrade pip
+ok=""
+for idx in cu130 cu129 cu128; do
+  echo "== torch from $idx"
+  $PY -m pip install -q torch --index-url "https://download.pytorch.org/whl/$idx" \
+    && $PY -c "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)" && ok=$idx && break
+done
+[ -n "$ok" ] || { echo "NO CUDA TORCH (tried cu130/cu129/cu128)"; exit 1; }
+$PY -m pip install -q "numpy>=2" "pandas>=2.2" "pyarrow>=15" requests anyascii rapidfuzz transformers==5.17.0 tokenizers==0.23.2 \
+  || { echo "pip install of pipeline deps failed"; exit 1; }
+echo "== GPU check"
+$PY - <<'PYEOF'
+import time, torch
+p = torch.cuda.get_device_properties(0)
+print("device:", p.name, "capability", torch.cuda.get_device_capability(0), f"{p.total_memory / 1e9:.0f} GB", "torch", torch.__version__)
+a = torch.randn(8192, 8192, device="cuda", dtype=torch.bfloat16)
+a @ a; torch.cuda.synchronize(); t = time.time()
+for _ in range(20):
+    a @ a
+torch.cuda.synchronize()
+print(f"bf16 matmul: {20 * 2 * 8192 ** 3 / (time.time() - t) / 1e12:.1f} TFLOPS")
+PYEOF
+echo "== runner"
+pkill -f scripts/gpu/remote_runner.py 2>/dev/null
+nohup setsid $PY scripts/gpu/remote_runner.py --queue-url "__QUEUE_URL__" --post "$BASE/post.json" \
+  > "$BASE/runner.out" 2>&1 < /dev/null &
+sleep 8
+pgrep -f scripts/gpu/remote_runner.py >/dev/null && echo "GPU BOOTSTRAP OK - you can close this SSH session" \
+  || { echo "runner failed to start:"; tail -20 "$BASE/runner.out"; }
