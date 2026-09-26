@@ -82,6 +82,14 @@ Rejection rules (a failed validation is **not scored**; the portal shows `SCORED
 
 Our checks: `src/er_submission.py` (ours), then `student_resource/utils/validate_submission.py` (theirs), both before every upload.
 
+## Organiser update (26 Sep): candidate set size counts
+- `candidate_pairs.tsv` is part of the final submission and is **reviewed with the code that produces it**.
+- Blocking must scale (billions of records): no all-pairs comparison; a small candidate set per Source 1 entity.
+- **A smaller candidate set per S1 ranks higher** in the final evaluation, beyond the public/private LB.
+- Ours: dense retrieval (4 views x top-10, same country) ~62/S1 -> stage-1 filter -> final set by stage-1 prob
+  (`--prune-eps`; 0.003 gives ~6.4/S1 at -0.00007 dev F0.5, 0.001 gives ~7.6/S1 at -0.00003). Exact GPU search today,
+  swap for ANN (e.g. HNSW) at billion scale; same-country partitioning is the first cut.
+
 ## Final submission package (required from every team)
 ```
 <team_name>_submission.zip
