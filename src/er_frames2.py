@@ -55,6 +55,20 @@ def truth(s1_ids) -> dict[str, set[str]]:
     return y
 
 
+def add_extra(X: pd.DataFrame, dirs: list[str], split: str) -> pd.DataFrame:
+    """Left-merge extra pair features (e.g. src.er_owner <dir>/<split>_owner.parquet) by (s1_id, cand_id); rows the
+    extra model did not score get NaN, which LightGBM handles natively."""
+    for d in dirs:
+        f = next(Path(d).glob(f"{split}_*.parquet"))
+        E = pd.read_parquet(f)
+        n = len(X)
+        X = X.merge(E, on=["s1_id", "cand_id"], how="left", validate="one_to_one")
+        assert len(X) == n
+        cols = [c for c in E.columns if c not in ("s1_id", "cand_id")]
+        log(f"{split}: +{cols} from {f.name}, scored on {X[cols[0]].notna().mean():.1%} of rows")
+    return X
+
+
 def cand_mask(df: pd.DataFrame, topk: int, min_prob: float, ce: np.ndarray | None = None,
               ce_min: float = 1.1) -> np.ndarray:
     """Rows kept in the candidate set: the S1's top-`topk` by stage-1 prob, and prob >= min_prob OR (with `ce`, a
@@ -103,6 +117,7 @@ def main() -> None:
     ap.add_argument("--cand-min-prob", type=float, default=0.0, help="and only candidates with stage-1 prob >= this")
     ap.add_argument("--cand-ce-col", default="", help="OR-rule: also keep rows whose CE column (e.g. ce_score_2) >= --cand-ce-min")
     ap.add_argument("--cand-ce-min", type=float, default=1.1)
+    ap.add_argument("--extra-feats", nargs="*", default=[], help="dirs with <split>_*.parquet extra pair features")
     ap.add_argument("--lr", type=float, default=0.1)
     ap.add_argument("--rounds", type=int, default=1000)
     ap.add_argument("--lgb-params", default="")
@@ -114,7 +129,7 @@ def main() -> None:
     rd.mkdir(parents=True, exist_ok=True)
 
     folds = pd.read_parquet(cache_dir() / "folds_s1_k5.parquet").set_index("s1_id")
-    X = pd.read_parquet(Path(a.frames) / "train_frame.parquet")
+    X = add_extra(pd.read_parquet(Path(a.frames) / "train_frame.parquet"), a.extra_feats, "train")
     frame_ids = pd.Index(X.s1_id.unique())            # every fit/dev S1, fixed before any pruning
     pruned = a.cand_topk < 15 or a.cand_min_prob > 0
     allp = None
@@ -199,7 +214,7 @@ def main() -> None:
     if not a.out:
         return
     from src.er_submission import write_outputs
-    Xt = pd.read_parquet(Path(a.frames) / "test_frame.parquet")
+    Xt = add_extra(pd.read_parquet(Path(a.frames) / "test_frame.parquet"), a.extra_feats, "test")
     ft = Xt.drop(columns=["prob"])
     ft["s1_prob"] = Xt.prob.to_numpy()
     probs = Xt[["s1_id", "cand_id"]].assign(prob=predict(models, ft).astype(np.float32))
