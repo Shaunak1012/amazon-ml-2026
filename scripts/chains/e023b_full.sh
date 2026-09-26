@@ -23,5 +23,5 @@ for v in sub_E023b_full sub_E023b_full_unseen; do
       --test-dir data/dataset/test --check-ids > runs/E015/sub_E023b_full/validate_$v.txt 2>&1 && echo "$v: organiser validator PASS" || echo "$v: organiser validator FAIL"
 done
 cmp -s submissions/sub_E023a_core/candidate_pairs.tsv submissions/sub_E023b_full/candidate_pairs.tsv && echo "candidate_pairs identical to E023a-core" || echo "WARNING: candidate_pairs differ from E023a-core"
-$PY scripts/cand_recall.py --tag E023b_full --sub submissions/sub_E023b_full
+$PY scripts/cand_recall.py --tag E023b_full --sub submissions/sub_E023b_full --frames runs/frames/E023b_full
 echo "E023b-full DONE $(date +%H:%M): full $($PY -c "import json; r=json.load(open('runs/E015/sub_E023b_full/stage2.json')); print(r['dev_f05'], r['dev_by_country'])") | core $($PY -c "import json; r=json.load(open('runs/E015/sub_E023a_core/stage2.json')); print(r['dev_f05'], r['dev_by_country'])")"
