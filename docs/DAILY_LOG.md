@@ -9,7 +9,7 @@ mid-way should catch up in 2 minutes. Also keep the GPU queue current.
 | — | — | — | — |
 
 ## HANDOFF — 2026-09-26 12:10 IST (read this first in a new session)
-**Leaderboard:** best = sub-08 **0.983** (E015). #1 = 0.988419. sub-07 0.975726. Slots on 26 Sep: **3 left** (assumes
+**Leaderboard:** best = sub-08 **0.983322** (E015). #1 = 0.990556 (26 Sep midday). sub-07 0.975726. Slots on 26 Sep: **3 left** (assumes
 sub-07 counted on 26 Sep). Keep >= 2 for 27 Sep.
 
 **E015 (sub-08):** fine-tuned bi-encoder view `both_ft` (E014) added to retrieval + features; stage 1 AND stage 2 fit on
