@@ -3,6 +3,16 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-27 00:05 IST: OW01 owner model (CPU, e5-small, 48k easy groups) = no gain; GPU plan
+- OW01 paired dev: top-15 0.99094 vs 0.99097 (-0.00003); strict pruned 0.99100 vs 0.99089 (+0.00010). Within noise.
+  First attempt crashed (extra-feature glob matched train_groups.parquet); fixed (explicit <split>_owner.parquet).
+- GPU: user's lab GB10 box via a credential-free runner (presigned queue GET + scoped POST; no AWS keys on the box).
+  Queued GPU job: OW03 (owner model, e5-base, 2 epochs, 137k hard groups) then CE03 (multilingual-e5-large
+  cross-encoder, MIT, 560M; trained on fold 1-4 hard pairs, scores the strict candidate set: 2.03M fold-0 + 8.99M
+  test pairs). r7i compares each automatically. Final run now prunes TEST with the same rule and recomputes population
+  features on the pruned test set (candidate_pairs.tsv == what stage 2 scores).
+- LLM reranker not used: 7B prefill over millions of pairs is too slow on one GPU, and Shaunak runs E022.
+
 ## 2026-09-26 23:00 IST: CS03 France check, SH01 submission built, JD01 dropped, owner model (OW01/OW02) running
 - **CS03 (real test, E020 frame): the stage-1 floor does NOT hurt France.** Test cand/S1 at floor 0.005 / 0.01 /
   0.02: India 6.30 / 5.60 / 4.94, US 6.23 / 5.55 / 4.91, **France 7.91 / 6.81 / 5.83**. French stage-1 probs are
