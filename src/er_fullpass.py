@@ -199,13 +199,33 @@ def norm2_pair_features(s1_ids, cand_ids, L2: pd.DataFrame, R2: pd.DataFrame, on
             for k, (x, y, f) in spec.items() if only is None or k in only}
 
 
+def density_mask(allp: pd.DataFrame, always: set | None, keep_frac: float, seed: int = 11) -> np.ndarray:
+    """Rows of allp whose S1 stays in the competitor population: every S1 in `always` (fit + dev) plus a random
+    keep_frac of the others. E025: test has ~18% fewer S1s per candidate record than train (2.67 vs 3.27 for US and
+    India), so competition features learned on the full train population mean something else on test; dropping
+    never-fitted S1s turns their records into extra distractors, the way test looks."""
+    if keep_frac >= 1.0:
+        return np.ones(len(allp), bool)
+    ids = pd.Index(allp.s1_id.unique())
+    keep = pd.Series(np.random.default_rng(seed).random(len(ids)) < keep_frac, index=ids)
+    if always:
+        keep[keep.index.isin(list(always))] = True
+    return keep.reindex(allp.s1_id).to_numpy()
+
+
 def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | None,
-                  comp_cols: tuple[str, ...] = (), norm2: bool = False) -> pd.DataFrame:
+                  comp_cols: tuple[str, ...] = (), norm2: bool = False, comp_keep: float = 1.0) -> pd.DataFrame:
     """Stage-2 design matrix: sibling feats per chunk (chunks partition S1) + competition feats over ALL chunks.
 
     comp_cols: extra stage-1 columns (e.g. name_full_tset) whose record-level "best other S1" competition features
     are added, computed over the full population like the prob ones."""
     allp = pd.concat([c[["s1_id", "cand_id", "prob", *comp_cols]] for c in chunks], ignore_index=True)
+    # train only (keep_s1 given): test keeps its full, real population
+    dm = density_mask(allp, keep_s1, comp_keep if keep_s1 is not None else 1.0)
+    if not dm.all():
+        # competitors come from the reduced population; rows of dropped S1s still get features but are never used
+        full = allp
+        allp = allp[dm].reset_index(drop=True)
     comp = competition_features(allp)
     for col in comp_cols:
         comp.update(competition_features(allp, col))
@@ -214,6 +234,12 @@ def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | N
         allp["name2_ratio"] = norm2_pair_features(allp.s1_id, allp.cand_id, L2, R2, only=("name2_ratio",))["name2_ratio"]
         comp.update(competition_features(allp, "name2_ratio"))
     comp_keys = list(comp)
+    if not dm.all():                                       # scatter back to the full row order (dropped rows: NaN)
+        for k in comp_keys:
+            v = np.full(len(full), np.nan, np.float32)
+            v[dm] = comp[k]
+            comp[k] = v
+        allp = full
     del allp
     parts, off = [], 0
     emb = {v: split_obj.embp[v] for v in split_obj.views}
@@ -271,7 +297,8 @@ def cached_frame(a: argparse.Namespace, name: str, build) -> pd.DataFrame:
     fd = Path(a.frames)
     fd.mkdir(parents=True, exist_ok=True)
     key = {"exp": a.exp, "ce_dir": list(a.ce_dir), "comp_cols": list(a.comp_cols), "views": list(a.views),
-           "fit_folds": list(a.fit_folds), "train_s1": a.train_s1, **({"norm2": True} if getattr(a, "norm2", False) else {})}
+           "fit_folds": list(a.fit_folds), "train_s1": a.train_s1, **({"norm2": True} if getattr(a, "norm2", False) else {}),
+           **({"comp_keep": a.comp_keep} if getattr(a, "comp_keep", 1.0) < 1.0 else {})}
     meta, path = fd / "frames.json", fd / f"{name}_frame.parquet"
     if meta.exists() and json.loads(meta.read_text(encoding="utf-8")) != key:
         raise ValueError(f"{fd} was built for {meta.read_text()}, not {key}; use another --frames dir")
@@ -298,7 +325,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     fit_ids = set(rng.choice(pool, size=min(a.train_s1, len(pool)), replace=False))
     dev_ids = set(folds.index[folds.dev])
     X = cached_frame(a, "train", lambda: stage2_frames(d, with_ce(load_chunks(rd, "train"), a.ce_dir, "train"),
-                                                       fit_ids | dev_ids, tuple(a.comp_cols), a.norm2))
+                                                       fit_ids | dev_ids, tuple(a.comp_cols), a.norm2, a.comp_keep))
     log(f"stage-2 frame {X.shape} [{time.time() - t0:.0f}s]")
     is_dev = X.s1_id.isin(dev_ids).to_numpy()
     Xtr, Xdev = X[~is_dev].reset_index(drop=True), X[is_dev].reset_index(drop=True)
@@ -407,6 +434,8 @@ def main() -> None:
     s2.add_argument("--tag", default="", help="suffix for saved dev predictions (dev_stage2_<tag>.parquet)")
     s2.add_argument("--frames", default="", help="cache dir for the stage-2 design matrices (load if present, else save)")
     s2.add_argument("--lgb-params", default="", help='JSON LightGBM overrides, e.g. {"num_leaves": 255}')
+    s2.add_argument("--comp-keep", type=float, default=1.0,
+                    help="E025: fraction of non-fit/dev train S1s kept as competitors (test-like density, e.g. 0.78)")
     s2.add_argument("--norm2", action="store_true", help="E024: add v2-normalised name/address features (src/er_norm2.py)")
     s2.add_argument("--comp-cols", nargs="*", default=[],
                     help="stage-1 columns for extra full-population competition features, e.g. name_full_tset")
