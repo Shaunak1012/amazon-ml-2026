@@ -5,8 +5,10 @@
 set -u
 cd "$(dirname "$0")/../.."
 PY=.venv/Scripts/python.exe
-until [ -f runs/E023a-core/exit.json ]; do sleep 60; done
-grep -q '"returncode": 0' runs/E023a-core/exit.json || { echo "CHAIN STOP: E023a-core failed"; exit 1; }
+# 27 Sep 03:25: E023a-core hung in its unseen-variant step after writing every output (fixed in 6bdd28d) and was killed;
+# its outputs were finished from the saved probabilities, marked by runs/E015/sub_E023a_core/RECOVERED.
+until [ -f runs/E023a-core/exit.json ] || [ -f runs/E015/sub_E023a_core/RECOVERED ]; do sleep 60; done
+grep -q '"returncode": 0' runs/E023a-core/exit.json 2>/dev/null || [ -f runs/E015/sub_E023a_core/RECOVERED ]     || { echo "CHAIN STOP: E023a-core failed"; exit 1; }
 mkdir -p runs/frames/E023a_st && cp runs/frames/E023a_core/train_frame.parquet runs/frames/E023a_st/
 $PY -c "import json; k=json.load(open('runs/frames/E023a_core/frames.json')); k['ce_dir']=['runs/E015-ce','runs/E020-ce','runs/E022-llmce']; json.dump(k, open('runs/frames/E023a_st/frames.json','w'))"
 $PY -m monitor.launch --run E023a-st --quiet -- $PY -m src.er_fullpass stage2 --exp E015 --views name addr both both_ft \
