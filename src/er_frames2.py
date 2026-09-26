@@ -59,7 +59,8 @@ def add_extra(X: pd.DataFrame, dirs: list[str], split: str) -> pd.DataFrame:
     """Left-merge extra pair features (src.er_owner <dir>/<split>_owner.parquet) by (s1_id, cand_id); rows the
     extra model did not score get NaN, which LightGBM handles natively."""
     for d in dirs:
-        f = Path(d) / f"{split}_owner.parquet"          # explicit: the dir also holds <split>_groups.parquet
+        # explicit names (an owner dir also holds <split>_groups.parquet): <split>_feats.parquet or <split>_owner.parquet
+        f = next(p for p in (Path(d) / f"{split}_feats.parquet", Path(d) / f"{split}_owner.parquet") if p.exists())
         E = pd.read_parquet(f)
         n = len(X)
         X = X.merge(E, on=["s1_id", "cand_id"], how="left", validate="one_to_one")
@@ -104,6 +105,7 @@ def repopulate(X: pd.DataFrame, allp: pd.DataFrame, nm: SimpleNamespace, drop: s
 def main() -> None:
     ap = argparse.ArgumentParser(prog="python -m src.er_frames2")
     ap.add_argument("--frames", required=True, help="dir with train_frame.parquet (+ test_frame.parquet for --out)")
+    ap.add_argument("--test-frame", default="", help="test frame path if not <frames>/test_frame.parquet (e.g. E020's)")
     ap.add_argument("--train-min", default="", help="parquet [s1_id, cand_id, prob, comp cols] of ALL train chunks")
     ap.add_argument("--comp-cols", nargs="*", default=[])
     ap.add_argument("--drop-s1-frac", type=float, default=0.0)
@@ -214,7 +216,16 @@ def main() -> None:
     if not a.out:
         return
     from src.er_submission import write_outputs
-    Xt = add_extra(pd.read_parquet(Path(a.frames) / "test_frame.parquet"), a.extra_feats, "test")
+    Xt = add_extra(pd.read_parquet(a.test_frame or Path(a.frames) / "test_frame.parquet"), a.extra_feats, "test")
+    if pruned:
+        # the SAME candidate rule on test; population features recomputed on the pruned test set, so
+        # candidate_pairs.tsv is exactly what the final model scores (organiser rule, 26 Sep update)
+        ce_t = Xt[a.cand_ce_col].to_numpy() if a.cand_ce_col else None
+        Xt = Xt[cand_mask(Xt, a.cand_topk, a.cand_min_prob, ce_t, a.cand_ce_min)].reset_index(drop=True)
+        Xt["s2_sum_prob_s1"] = Xt.groupby("s1_id").prob.transform("sum").astype(np.float32)
+        Xt = repopulate(Xt, Xt[["s1_id", "cand_id", "prob", *a.comp_cols]], names("test"), set(),
+                        tuple(a.comp_cols), force=True)
+        log(f"test candidate set: {len(Xt) / Xt.s1_id.nunique():.2f} per S1 with candidates")
     ft = Xt.drop(columns=["prob"])
     ft["s1_prob"] = Xt.prob.to_numpy()
     probs = Xt[["s1_id", "cand_id"]].assign(prob=predict(models, ft).astype(np.float32))
