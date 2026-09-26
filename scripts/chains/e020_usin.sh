@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# E020 (variant B) = E019 + US/India self-trained CE on uncertain test pairs. GPU after E018; stage 2 after E019.
-# LB-only check (test-side change), so it is a separate file from E019 (variant A).
+# E020 = E019 features + France (E018) and US/India (this) self-trained CE on test. GPU after E018; stage 2 after
+# E019's dev part (reuses its cached train frame). The submission for 26 Sep evening.
 set -u
 cd "$(dirname "$0")/../.."
 PY=.venv/Scripts/python.exe
@@ -15,8 +15,8 @@ $PY -m monitor.launch --run E020-score --quiet -- $PY -m src.er_selftrain score 
     --country US India --uncertain 0.02 0.98 --base-ce runs/E018-ce --out runs/E020-ce
 ok E020-score || { echo "CHAIN STOP: E020 scoring failed"; exit 1; }
 echo "E020 CE ok $(date +%H:%M)"
-until [ -f runs/E019-test/exit.json ]; do sleep 30; done
-ok E019-test || { echo "CHAIN STOP: E019 failed"; exit 1; }
+until [ -f runs/E019-dev/exit.json ]; do sleep 30; done
+ok E019-dev || { echo "CHAIN STOP: E019 dev failed"; exit 1; }
 # train frame is identical (train_ce is the same E016 copy in E018-ce and E020-ce): reuse E019's, retagged for E020
 mkdir -p runs/frames/E020 && cp runs/frames/E019/train_frame.parquet runs/frames/E020/
 $PY -c "import json; k=json.load(open('runs/frames/E019/frames.json')); k['ce_dir']=['runs/E015-ce','runs/E020-ce']; json.dump(k, open('runs/frames/E020/frames.json','w'))"
