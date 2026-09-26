@@ -121,7 +121,9 @@ before final rankings are confirmed. Code needs proper comments describing the f
 - **Every model** (embedder, reranker, matcher, preprocessing model) must independently be MIT/Apache-2.0, ≤ 8B
   parameters, run **offline** (no live API calls), and be **fine-tuned only on the provided data**. Licences are checked.
 - **Hosted LLM APIs (Claude/Gemini/ChatGPT) are not allowed** in the solution.
-- **Self-training on unlabeled test records** (pseudo-labels from our own predictions, no external data): confirmed allowed by the team lead (Shaunak) on 2026-09-26, as test records are provided data. Keep the organisers' wording/answer on file for the approach doc.
+- **Self-training on unlabeled test records** (pseudo-labels from our own predictions): the team lead's reading on
+  2026-09-26, **not confirmed by the organisers**; the statement's Fair Play line says "using only the provided training
+  data". **Dropped from the final build (26 Sep 22:40) to remove the risk**; only sub-10 used it.
 
 ### Our compliance (keep current; mirrored in docs/REPRODUCE.md)
 | Component | Type | Licence | Params | Verdict |
@@ -138,8 +140,8 @@ before final rankings are confirmed. Code needs proper comments describing the f
 | legal-suffix list, `&`→"and", `null` cleanup (`src/er_normalize.py`) | small hand-written normalisation dictionary | ours | n/a | explicitly allowed |
 | postcode / number extraction | regex on provided records | ours | n/a | allowed |
 | network calls in `src/` | none (models load from local cache) | — | — | compliant |
-Never add: libpostal, geocoders, postal-code/gazetteer/state-abbreviation datasets, or hosted LLM calls. Abbreviation
-maps, if used, are learned from the provided training pairs.
+Never add: libpostal, geocoders, postal-code/gazetteer/state-abbreviation datasets, or hosted LLM calls. Abbreviation maps are small hand-written
+generic dictionaries (organiser-allowed), applied to every row regardless of country.
 
 ## Submission limits and leaderboard
 - **Max 5 submissions per day**, for 3 days (15 total); the submit button is then disabled. Daily reset time is not
