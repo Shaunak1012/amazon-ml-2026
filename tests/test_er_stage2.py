@@ -145,3 +145,12 @@ def test_frames2_repopulate_matches_rebuilt_frame():
     cols = [c for c in want.columns if c.startswith(("s2_other", "s2_margin", "comp_", "rar_"))]
     assert len(cols) == 10
     pd.testing.assert_frame_equal(got[cols].reset_index(drop=True), want[cols].reset_index(drop=True))
+
+
+def test_cand_mask_topk_and_floor():
+    from src.er_frames2 import cand_mask
+
+    df = pd.DataFrame({"s1_id": ["a", "a", "a", "b", "b"], "prob": [0.9, 0.05, 0.4, 0.001, 0.3]})
+    assert cand_mask(df, 2, 0.0).tolist() == [True, False, True, True, True]
+    assert cand_mask(df, 15, 0.01).tolist() == [True, True, True, False, True]
+    assert cand_mask(df, 1, 0.5).tolist() == [True, False, False, False, False]   # b ends with no candidates

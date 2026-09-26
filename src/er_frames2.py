@@ -55,10 +55,17 @@ def truth(s1_ids) -> dict[str, set[str]]:
     return y
 
 
+def cand_mask(df: pd.DataFrame, topk: int, min_prob: float) -> np.ndarray:
+    """Rows kept in the candidate set: the S1's top-`topk` by stage-1 prob, and prob >= min_prob."""
+    rank = df.groupby("s1_id", sort=False).prob.rank(ascending=False, method="first").to_numpy()
+    return (rank <= topk) & (df.prob.to_numpy() >= min_prob)
+
+
 def repopulate(X: pd.DataFrame, allp: pd.DataFrame, nm: SimpleNamespace, drop: set,
-               comp_cols: tuple[str, ...]) -> pd.DataFrame:
-    """Recompute competition + rarity columns of X's rows in the population without the `drop` S1s."""
-    if not drop:
+               comp_cols: tuple[str, ...], force: bool = False) -> pd.DataFrame:
+    """Recompute competition + rarity columns of X's rows in the population without the `drop` S1s
+    (force: recompute even with no drop, e.g. after candidate pruning changed the population)."""
+    if not drop and not force:
         return X
     P = allp[~allp.s1_id.isin(drop)].reset_index(drop=True)
     comp = competition_features(P)
@@ -87,6 +94,8 @@ def main() -> None:
     ap.add_argument("--dev-drop-frac", type=float, default=None, help="dev drop fraction (default: --drop-s1-frac)")
     ap.add_argument("--fit-without-dropped", action="store_true",
                     help="eval mode only: also remove the dropped S1s' fit rows (same fit size as 'both', no recompute)")
+    ap.add_argument("--cand-topk", type=int, default=15, help="keep the S1's top-k stage-1 candidates (frames hold 15)")
+    ap.add_argument("--cand-min-prob", type=float, default=0.0, help="and only candidates with stage-1 prob >= this")
     ap.add_argument("--lr", type=float, default=0.1)
     ap.add_argument("--rounds", type=int, default=1000)
     ap.add_argument("--lgb-params", default="")
@@ -99,6 +108,16 @@ def main() -> None:
 
     folds = pd.read_parquet(cache_dir() / "folds_s1_k5.parquet").set_index("s1_id")
     X = pd.read_parquet(Path(a.frames) / "train_frame.parquet")
+    frame_ids = pd.Index(X.s1_id.unique())            # every fit/dev S1, fixed before any pruning
+    pruned = a.cand_topk < 15 or a.cand_min_prob > 0
+    allp = None
+    if pruned:
+        # candidate-set pruning by stage-1 prob: the pruned list is what stage 2 (the final model) runs on, i.e. the
+        # candidate_pairs.tsv; competition features are recomputed over the pruned population
+        X = X[cand_mask(X, a.cand_topk, a.cand_min_prob)].reset_index(drop=True)
+        X["s2_sum_prob_s1"] = X.groupby("s1_id").prob.transform("sum").astype(np.float32)
+        allp = pd.read_parquet(a.train_min, columns=["s1_id", "cand_id", "prob", *a.comp_cols])
+        allp = allp[cand_mask(allp, a.cand_topk, a.cand_min_prob)].reset_index(drop=True)
     drop: set = set()
     dev_drop: set = set()
     if a.drop_s1_frac > 0:
@@ -116,20 +135,28 @@ def main() -> None:
     Xtr = X[~is_dev & ~X.s1_id.isin(fit_excl).to_numpy()].reset_index(drop=True)
     Xdev = X[is_dev & ~X.s1_id.isin(dev_drop).to_numpy()].reset_index(drop=True)
     del X
-    if drop:
-        allp = pd.read_parquet(a.train_min, columns=["s1_id", "cand_id", "prob", *a.comp_cols])
+    if drop or pruned:
+        if allp is None:
+            allp = pd.read_parquet(a.train_min, columns=["s1_id", "cand_id", "prob", *a.comp_cols])
         nm = names("train")
-        Xtr = repopulate(Xtr, allp, nm, drop_fit, tuple(a.comp_cols))
-        Xdev = repopulate(Xdev, allp, nm, dev_drop, tuple(a.comp_cols))
+        Xtr = repopulate(Xtr, allp, nm, drop_fit, tuple(a.comp_cols), force=pruned)
+        Xdev = repopulate(Xdev, allp, nm, dev_drop, tuple(a.comp_cols), force=pruned)
         del allp
     log(f"frames: fit {Xtr.shape}, dev {Xdev.shape}, dropped {len(drop):,} S1 ({a.drop_in}) [{time.time() - t0:.0f}s]")
 
-    fit_ids, dev_ids = Xtr.s1_id.unique(), Xdev.s1_id.unique()
+    # S1s whose whole candidate list was pruned stay in the evaluation (predicted empty), like er_fullpass
+    fdev = folds.dev.reindex(frame_ids).to_numpy(bool)
+    fit_ids = frame_ids[~fdev & ~frame_ids.isin(list(fit_excl))].to_numpy()
+    dev_ids = frame_ids[fdev & ~frame_ids.isin(list(dev_drop))].to_numpy()
     y_all = truth(np.concatenate([fit_ids, dev_ids]))
     y_tr, y_dev = {k: y_all[k] for k in fit_ids}, {k: y_all[k] for k in dev_ids}
+    n_true = sum(len(v) for v in y_dev.values())
+    cand_stats = {"cand_per_s1_dev": len(Xdev) / len(dev_ids),
+                  "cand_recall_dev": float(Xdev.y.sum()) / max(n_true, 1),
+                  "s1_with_no_cands_dev": 1 - Xdev.s1_id.nunique() / len(dev_ids)}
     rule1, t1, _ = choose_decision(Xtr[["s1_id", "cand_id", "prob"]], y_tr)
     res = {"tag": a.tag, "drop_s1_frac": a.drop_s1_frac, "drop_in": a.drop_in, "n_fit": len(fit_ids),
-           "n_dev": len(dev_ids),
+           "n_dev": len(dev_ids), "cand_topk": a.cand_topk, "cand_min_prob": a.cand_min_prob, **cand_stats,
            "stage1_dev_f05": er_fbeta_macro(y_dev, apply_decision(Xdev[["s1_id", "cand_id", "prob"]], rule1, t1))}
     feat = Xtr.drop(columns=["prob"])
     feat["s1_prob"] = Xtr.prob.to_numpy()
