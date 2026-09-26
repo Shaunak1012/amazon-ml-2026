@@ -5,6 +5,7 @@ The POST policy only allows keys under shared/runs/ and expires after 7 days. Fi
 <path>.done marker is written after each complete file.
 
     python runs/upload_to_shreyas.py --post runs/post_shreyas.json runs/frames/E019 runs/E015/dev_stage2_E019.parquet ...
+    python runs/upload_to_shreyas.py --post runs/post_shreyas.json --train-min    # slim table instead of all chunks
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ from pathlib import Path
 import requests
 
 PART = 1024 ** 3
+MIN_COLS = ["s1_id", "cand_id", "prob", "cos_name", "name_ratio", "name_jw", "name_full_tset", "name_tsort"]
 
 
 def send(post: dict, key: str, blob: bytes) -> None:
@@ -44,9 +46,21 @@ def upload_file(post: dict, path: Path) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--post", required=True, help="presigned POST json (url + fields)")
-    ap.add_argument("paths", nargs="+", help="files or folders under runs/")
+    ap.add_argument("--train-min", action="store_true",
+                    help="build runs/train_min.parquet (8 columns of every runs/E015/train_chunks row) and upload it")
+    ap.add_argument("paths", nargs="*", help="files or folders under runs/")
     a = ap.parse_args()
     post = json.loads(Path(a.post).read_text())
+    if a.train_min:
+        import pandas as pd
+        import pyarrow.parquet as pq
+        files = sorted(Path("runs/E015/train_chunks").glob("*.parquet"))
+        cols = [c for c in MIN_COLS if c in pq.read_schema(files[0]).names]
+        df = pd.concat([pd.read_parquet(f, columns=cols) for f in files], ignore_index=True)
+        df.to_parquet("runs/train_min.parquet", index=False, compression="zstd")
+        print(f"train_min: {len(df):,} rows, {len(files)} chunks, cols {cols}", flush=True)
+        del df
+        upload_file(post, Path("runs/train_min.parquet"))
     for p in map(Path, a.paths):
         files = sorted(x for x in p.rglob("*") if x.is_file()) if p.is_dir() else [p]
         for f in files:
