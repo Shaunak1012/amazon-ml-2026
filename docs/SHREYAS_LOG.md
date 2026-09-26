@@ -3,6 +3,21 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-26 23:00 IST: CS03 France check, SH01 submission built, JD01 dropped, owner model (OW01/OW02) running
+- **CS03 (real test, E020 frame): the stage-1 floor does NOT hurt France.** Test cand/S1 at floor 0.005 / 0.01 /
+  0.02: India 6.30 / 5.60 / 4.94, US 6.23 / 5.55 / 4.91, **France 7.91 / 6.81 / 5.83**. French stage-1 probs are
+  less peaked, so the floor removes fewer French candidates, not more.
+- **SH01 submission** (E020 test frame + 4-model test-density stage 2, expected-F): both validators PASS;
+  94.3% non-empty, 3.37 matches/S1 (US 3.38, India 3.38, France 3.32). s3://.../shreyas/artifacts/sub_SH01/.
+  Top-15 candidates (not pruned). Expected LB gain over E020 small (+0.0003-0.0004 from dev).
+- **JD01 (joint/release decoding) dropped:** on E016 test probs, records rejected by their top S1 whose 2nd S1 has
+  p >= 0.5: 5,913 (0.33% of S1); p >= 0.7: 64; p >= 0.9: 0. No confident second owner exists to release to.
+- **GPU:** g5.2xlarge training-job quota is 0 (spot and on-demand); Studio g5 capacity unavailable. CPU only.
+- **OW01/OW02 listwise owner model** (`src/er_owner.py`): record + up to 6 competing S1s in one sequence
+  (multilingual-e5-small, CPU, fp32 train / bf16 infer), softmax over slots + none -> stage-2 features own_p,
+  own_margin, own_none, own_n (`er_frames2 --extra-feats`). OW01 leakage rule was too strict (48k groups); OW02 uses
+  the slot-list rule (137k of 300k contested groups, 3.13 slots/record). OW01 slot accuracy 0.85 at step 250.
+
 ## 2026-09-26 20:05 IST: CS04 strict OR-rule candidate sets -> recommendation
 Shaunak's pruning (a6df68d) filters stage-2 rows AFTER building features on the full top-15, so competition/sibling
 features and the OR-rule CE use pairs that are not in candidate_pairs.tsv (reviewers read the code: risk that the
