@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
 # One-time setup of a remote GPU box WITHOUT AWS keys (links are presigned, scoped, 7-day). Idempotent.
-# The user runs it in their own SSH session:   curl -s "<bootstrap link>" | bash
+# The user runs it DETACHED from SSH (a dropped connection must not kill it), from ~/Desktop/aml:
+#   curl -s "<bootstrap link>" -o boot.sh && (setsid nohup bash boot.sh > boot.log 2>&1 < /dev/null &) && tail -f boot.log
+# Progress is also uploaded to s3://<bucket>/shreyas-gpu/out/bootstrap.log after each stage.
 set -uo pipefail
 BASE=${BASE:-$HOME/Desktop/aml}
 mkdir -p "$BASE/repo" && cd "$BASE/repo" || exit 1
-echo "== code"
-curl -sf "__CODE_URL__" | tar -xz && cat COMMIT || { echo "code download failed (no internet from this box?)"; exit 1; }
 echo "__POST_B64__" | base64 -d > "$BASE/post.json" && chmod 600 "$BASE/post.json"
+rep() { [ -f "$BASE/boot.log" ] && [ -f scripts/gpu/post_file.py ] &&         python3 scripts/gpu/post_file.py "$BASE/post.json" bootstrap.log "$BASE/boot.log" 2>/dev/null; true; }
+trap rep EXIT
+echo "== code $(date)"
+curl -sf "__CODE_URL__" | tar -xz && cat COMMIT || { echo "code download failed (no internet from this box?)"; exit 1; }
+rep
 echo "== python: $(python3 --version 2>&1)"
 if [ ! -x .venv/bin/python ]; then
   python3 -m venv .venv 2>/dev/null || { command -v conda >/dev/null && conda create -y -q -p "$PWD/.venv" python=3.12 >/dev/null; }
 fi
 [ -x .venv/bin/python ] || { echo "NO VENV: python3-venv missing and no conda; tell Claude"; exit 1; }
 PY=.venv/bin/python
+rep
 $PY -m pip install -q --upgrade pip
 ok=""
 for idx in cu130 cu129 cu128; do
@@ -21,8 +27,10 @@ for idx in cu130 cu129 cu128; do
     && $PY -c "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)" && ok=$idx && break
 done
 [ -n "$ok" ] || { echo "NO CUDA TORCH (tried cu130/cu129/cu128)"; exit 1; }
+echo "== torch ok from $ok $(date)"; rep
 $PY -m pip install -q "numpy>=2" "pandas>=2.2" "pyarrow>=15" requests anyascii rapidfuzz transformers==5.17.0 tokenizers==0.23.2 \
   || { echo "pip install of pipeline deps failed"; exit 1; }
+echo "== deps ok $(date)"; rep
 echo "== GPU check"
 $PY - <<'PYEOF'
 import time, torch
@@ -35,6 +43,7 @@ for _ in range(20):
 torch.cuda.synchronize()
 print(f"bf16 matmul: {20 * 2 * 8192 ** 3 / (time.time() - t) / 1e12:.1f} TFLOPS")
 PYEOF
+rep
 echo "== runner"
 pkill -f scripts/gpu/remote_runner.py 2>/dev/null
 nohup setsid $PY scripts/gpu/remote_runner.py --queue-url "__QUEUE_URL__" --post "$BASE/post.json" \
