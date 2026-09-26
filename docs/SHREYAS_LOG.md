@@ -3,6 +3,27 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-26 19:20 IST: CS01 candidate-set size vs F0.5 (organisers' update: smaller candidate sets rank higher)
+E019 train frame, normal density, competition features recomputed on the pruned population, stage 2 refit per
+setting. Dev = all 100k dev S1 (S1s left with no candidates are scored as predicted empty).
+
+| setting | cand/S1 | recall | dev F0.5 | vs top-15 |
+|---|---|---|---|---|
+| top-15 (current) | 15.00 | 0.9974 | 0.99097 | - |
+| top-10 | 10.00 | 0.9963 | 0.99087 | -0.0001 |
+| top-8 | 8.00 | 0.9940 | 0.99076 | -0.0002 |
+| top-6 | 6.00 | 0.9767 | 0.98896 | -0.0020 |
+| top-5 | 5.00 | 0.9425 | 0.98443 | -0.0065 |
+| **stage-1 p >= 0.01** | **5.25** | 0.9936 | **0.99073** | **-0.00024** |
+| top-8 + p >= 0.01 | 5.06 | 0.9919 | 0.99063 | -0.0003 |
+| p >= 0.02 | 4.62 | 0.9905 | 0.99035 | -0.0006 |
+| p >= 0.05 | 4.06 | 0.9854 | 0.98985 | -0.0011 |
+
+- A stage-1 probability floor (adaptive per S1) dominates fixed caps: p >= 0.01 cuts candidates 65% (15 -> 5.25/S1)
+  for -0.00024 dev F0.5; fixed caps below 8 break entities with many true matches. CS02 (p 0.003-0.0075) running.
+- Final pipeline: apply the floor to the stage-1 output before CE scoring and stage 2, so candidate_pairs.tsv equals
+  the set stage 2 scores. Doc: present stage 1 as a learned blocking filter (cascade allowed by the rules).
+
 ## 2026-09-26 18:40 IST: sync - Shaunak's E025 = SH01 in the main pipeline
 **shaunak @ adafc7d:** sub-10 (E020, self-trained CEs) **LB 0.985645** (new best). E024 `--norm2` (street types
 expanded, dotted legal forms). **E025 `--comp-keep 0.78`**: thins never-fitted train S1s so competition features see
