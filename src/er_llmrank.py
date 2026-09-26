@@ -237,8 +237,12 @@ def cmd_score(a: argparse.Namespace) -> None:
 
 def cmd_to_ce(a: argparse.Namespace) -> None:
     """Write stage-2 --ce-dir format: per stage-1 chunk, llm_score as ce_score (NaN outside the band)."""
-    for split in ("train", "test"):
-        sc = pd.concat([pd.read_parquet(f) for f in sorted((Path(a.llm) / f"llm_{split}").glob("*.parquet"))])
+    for split in a.splits:
+        files = sorted((Path(a.llm) / f"llm_{split}").glob("*.parquet"))
+        if not files:
+            print(f"{split}: no llm scores yet, skipped")
+            continue
+        sc = pd.concat([pd.read_parquet(f) for f in files])
         key = pd.Series(sc.llm_score.to_numpy(), index=pd.MultiIndex.from_arrays([sc.s1_id, sc.cand_id]))
         od = Path(a.out) / f"{split}_ce"
         od.mkdir(parents=True, exist_ok=True)
@@ -286,6 +290,7 @@ def main() -> None:
     c.add_argument("--llm", required=True)
     c.add_argument("--out", required=True)
     c.add_argument("--exp-dir", default="runs/E015")
+    c.add_argument("--splits", nargs="+", default=["train", "test"], help="train only = dev check before test is scored")
     a = ap.parse_args()
     {"build": cmd_build, "train": cmd_train, "score": cmd_score, "to-ce": cmd_to_ce}[a.cmd](a)
 
