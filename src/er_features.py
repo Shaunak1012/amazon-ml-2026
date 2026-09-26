@@ -22,7 +22,9 @@ FEATURE_GROUPS: dict[str, Callable] = {}
 
 
 def feature_group(name: str):
+    """Decorator registering a feature-group function under a name."""
     def deco(fn):
+        """Register fn in FEATURE_GROUPS and return it unchanged."""
         FEATURE_GROUPS[name] = fn
         return fn
     return deco
@@ -51,6 +53,7 @@ def f_embed(ctx: dict) -> dict:
 
 @feature_group("name")
 def f_name(ctx: dict) -> dict:
+    """Name similarities: ratio, token set/sort, partial, Jaro-Winkler, exact core-name match, lengths."""
     L, R = ctx["L"], ctx["R"]
     a, b = L["name_core"], R["name_core"]
     an, bn = L["name_norm"], R["name_norm"]
@@ -69,6 +72,7 @@ def f_name(ctx: dict) -> dict:
 
 @feature_group("address")
 def f_address(ctx: dict) -> dict:
+    """Address similarities plus number agreement (Jaccard, first number) and postcode agree/conflict."""
     L, R = ctx["L"], ctx["R"]
     a, b = L["addr_norm"], R["addr_norm"]
     empty_r = (np.char.str_len(b.astype(str)) == 0)

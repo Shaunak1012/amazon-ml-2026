@@ -31,12 +31,14 @@ COMP = ("s2_other_s1_best", "s2_margin_vs_other_s1")
 
 
 def run_dir(exp: str) -> Path:
+    """Run folder runs/<exp> (created if missing)."""
     d = Path("runs") / exp
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def cmd_stage1(a: argparse.Namespace) -> None:
+    """Fit stage 1 on the chosen pool, then score every train (out-of-fold) and test S1 in resumable chunks."""
     from monitor import Heartbeat
 
     t0 = time.time()
@@ -79,6 +81,7 @@ def cmd_stage1(a: argparse.Namespace) -> None:
     hb.step(1, force=True, stage="score train")
 
     def score(split_obj: Split, name: str, fold_of_s1: np.ndarray | None, labels: set | None, step0: int) -> None:
+        """Retrieve, featurise and score one split chunk by chunk, keeping the top candidates per S1."""
         out = rd / f"{name}_chunks"
         out.mkdir(exist_ok=True)
         n = min(len(split_obj.s1), a.max_s1) if a.max_s1 else len(split_obj.s1)   # --max-s1: smoke tests only
@@ -117,6 +120,7 @@ def cmd_stage1(a: argparse.Namespace) -> None:
 
 
 def load_chunks(rd: Path, name: str, columns=None) -> list[pd.DataFrame]:
+    """Load a split's stage-1 chunk parquets in order."""
     return [pd.read_parquet(p, columns=columns) for p in sorted((rd / f"{name}_chunks").glob("*.parquet"))]
 
 
@@ -171,6 +175,7 @@ def name_rarity(split_obj: Split) -> tuple[pd.DataFrame, pd.DataFrame]:
     df = (ex.country.astype(str) + "|" + ex.tok.astype(str)).value_counts()
 
     def min_df(frame: pd.DataFrame) -> np.ndarray:
+        """Per record: document frequency of its rarest core-name token within its country."""
         e = frame.assign(tok=frame.name_core.str.split()).explode("tok")
         v = (e.country.astype(str) + "|" + e.tok.astype(str)).map(df).fillna(0.0)
         return v.groupby(level=0, sort=False).min().reindex(frame.index).to_numpy(np.float32)
@@ -324,6 +329,7 @@ def cached_frame(a: argparse.Namespace, name: str, build) -> pd.DataFrame:
 
 
 def cmd_stage2(a: argparse.Namespace) -> None:
+    """Build (or load cached) stage-2 frames, fit on the clean fit pool, report dev F0.5, optionally predict test."""
     from src.er_data import dataset_dir
     from src.er_submission import write_outputs
 
@@ -419,6 +425,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    """CLI entry point: stage1 / stage2 subcommands."""
     ap = argparse.ArgumentParser(prog="python -m src.er_fullpass")
     sp = ap.add_subparsers(dest="cmd", required=True)
     for name in ("stage1", "stage2"):

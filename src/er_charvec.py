@@ -47,6 +47,7 @@ def fit(sample_n: int = 1_000_000, seed: int = 0) -> tuple[TfidfTransformer, Tru
 
 
 def transform(tfidf: TfidfTransformer, svd: TruncatedSVD, t: list[str], chunk: int = 500_000) -> np.ndarray:
+    """Char n-gram TF-IDF vectors (L2-normalised, float16) for a list of strings."""
     out = np.empty((len(t), DIM), np.float16)
     for s in range(0, len(t), chunk):
         z = svd.transform(tfidf.transform(HASH.transform(t[s:s + chunk])))
@@ -56,6 +57,7 @@ def transform(tfidf: TfidfTransformer, svd: TruncatedSVD, t: list[str], chunk: i
 
 
 def main() -> None:
+    """Write char n-gram embedding caches for the requested splits."""
     ap = argparse.ArgumentParser(prog="python -m src.er_charvec")
     ap.add_argument("--splits", nargs="+", default=["train", "test"])
     a = ap.parse_args()

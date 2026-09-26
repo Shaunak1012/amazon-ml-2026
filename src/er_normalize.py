@@ -37,6 +37,7 @@ def to_ascii(s: str) -> str:
 
 
 def _clean(s: str) -> str:
+    """ASCII-transliterate, replace '&' by 'and', drop punctuation and literal nulls, squeeze spaces."""
     s = to_ascii(s).replace("&", " and ")
     s = _NON_ALNUM.sub(" ", s)
     s = _NULL_TOKENS.sub(" ", s)
@@ -77,6 +78,7 @@ def extract_postcode(s: str) -> str:
 
 
 def _norm_chunk(args: tuple[list[str], list[str]]) -> dict[str, list]:
+    """Normalise one chunk of names and addresses (worker function)."""
     names, addrs = args
     return {
         "name_norm": [normalize_name(x) for x in names],

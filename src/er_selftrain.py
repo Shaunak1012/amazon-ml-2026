@@ -119,6 +119,7 @@ def cmd_score(a: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    """CLI entry point: train / score subcommands."""
     ap = argparse.ArgumentParser(prog="python -m src.er_selftrain")
     sp = ap.add_subparsers(dest="cmd", required=True)
     t = sp.add_parser("train")

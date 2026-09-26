@@ -48,12 +48,14 @@ def load_sources(split_dir: str | Path, usecols=None) -> tuple[pd.DataFrame, pd.
 
 
 def load_ground_truth(path: str | Path) -> dict[str, set[str]]:
+    """Ground truth as {S1 id: set of matched ids}."""
     gt = read_tsv(path)
     return {r.source1_entity_id: parse_id_list(r.matched_entity_ids) for r in gt.itertuples(index=False)}
 
 
 # ------------------------------------------------------------------ writing
 def _fmt(ids: Iterable[str]) -> str:
+    """Comma-join an ID list (empty string for no ids)."""
     return ",".join(sorted(set(ids)))
 
 
@@ -112,6 +114,7 @@ def _parse_file(path: Path, header: tuple[str, str], r: Report) -> dict[str, lis
 
 def _check_lists(name: str, rows: dict[str, list[str]], valid_s1: set[str] | None, valid_other: set[str] | None,
                  r: Report) -> None:
+    """Check one file's ID lists: known S2/S3 ids only, no self-matches, no duplicates."""
     if valid_s1 is not None:
         missing, extra = valid_s1 - rows.keys(), rows.keys() - valid_s1
         if missing:
@@ -134,6 +137,7 @@ def _check_lists(name: str, rows: dict[str, list[str]], valid_s1: set[str] | Non
 
 def validate_outputs(matching: str | Path, candidate: str | Path | None = None, test_dir: str | Path | None = None,
                      s1_ids: Iterable[str] | None = None) -> Report:
+    """Validate both output TSVs against every organiser rule, including matches being a subset of candidates."""
     r = Report()
     valid_s1 = set(s1_ids) if s1_ids is not None else None
     valid_other = None
@@ -165,6 +169,7 @@ def validate_outputs(matching: str | Path, candidate: str | Path | None = None, 
 
 
 def main(argv=None) -> int:
+    """CLI: validate a pair of output files."""
     ap = argparse.ArgumentParser(prog="python -m src.er_submission")
     sp = ap.add_subparsers(dest="cmd", required=True)
     v = sp.add_parser("validate")

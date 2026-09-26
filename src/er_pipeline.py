@@ -32,6 +32,7 @@ VIEWS = ("name", "addr", "both")
 
 
 def log(msg: str) -> None:
+    """Timestamped progress line on stdout."""
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
@@ -53,6 +54,7 @@ class Split:
     """All cached data for one split: raw + normalised frames and embedding matrices (memory-mapped)."""
 
     def __init__(self, split: str, model: str = "small", views=VIEWS):
+        """Load raw and normalised frames and memory-map the embedding views of one split."""
         self.split = split
         s1, s2, s3, gt = load(split, with_gt=(split == "train"))
         self.s1, self.pool = s1, pd.concat([s2, s3], ignore_index=True)
@@ -70,6 +72,7 @@ class Split:
         self.n2 = len(s2)
 
     def truth(self, s1_ids) -> dict[str, set[str]]:
+        """Ground-truth match sets for the given S1 ids (empty set for singletons)."""
         g = self.gt[self.gt.s1_id.isin(set(s1_ids))]
         y = {s: set() for s in s1_ids}
         for s, c in zip(g.s1_id.to_numpy(), g.cand_id.to_numpy()):
@@ -94,6 +97,7 @@ def retrieve(d: Split, s1_mask: np.ndarray, k: int) -> pd.DataFrame:
 
 
 def featurize(d: Split, pairs: pd.DataFrame) -> pd.DataFrame:
+    """Pair features for retrieved pairs of a split (see src/er_features.py)."""
     left_pos = d.left.index.get_indexer(pairs.s1_id)
     right_pos = d.right.index.get_indexer(pairs.cand_id)
     emb = {v: (d.emb1[v], d.embp[v]) for v in d.views}
@@ -130,6 +134,7 @@ def evaluate_strategies(p_tr: pd.DataFrame, y_tr: dict, p_dev: pd.DataFrame, y_d
 
 
 def cmd_validate(a: argparse.Namespace) -> None:
+    """Validation experiment: fit on folds 1-4 sample, tune decisions on OOF, score the dev subset."""
     import os
 
     from monitor import Heartbeat
@@ -234,6 +239,7 @@ def choose_decision(p: pd.DataFrame, y: dict) -> tuple[str, float, float]:
 
 
 def apply_decision(p: pd.DataFrame, rule: str, t: float) -> dict[str, set[str]]:
+    """Turn pair probabilities into match sets with the chosen rule (threshold or expected F0.5)."""
     return decide_expected_f(p) if rule == "expected_f" else decide(p, t, assign=True)
 
 
@@ -342,6 +348,7 @@ def cmd_predict(a: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    """CLI entry point: validate / predict subcommands."""
     ap = argparse.ArgumentParser(prog="python -m src.er_pipeline")
     sp = ap.add_subparsers(dest="cmd", required=True)
     v = sp.add_parser("validate")

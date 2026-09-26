@@ -23,12 +23,14 @@ from src.config import REPO_ROOT, load_env
 
 
 def oof_root() -> Path:
+    """Root folder for out-of-fold prediction files (OOF_DIR)."""
     load_env()
     p = Path(os.environ.get("OOF_DIR") or "oof")
     return p if p.is_absolute() else REPO_ROOT / p
 
 
 def _pred_frame(pred: np.ndarray) -> pd.DataFrame:
+    """Predictions as a DataFrame with an id column."""
     pred = np.asarray(pred)
     if pred.ndim == 1:
         return pd.DataFrame({"pred": pred})
@@ -48,6 +50,7 @@ def save_oof(
     root: str | Path | None = None,
     **meta,
 ) -> Path:
+    """Save OOF and test predictions of one experiment for later blending."""
     oof_pred = np.asarray(oof_pred)
     if len(train_ids) != len(oof_pred) or len(folds) != len(oof_pred):
         raise ValueError("train_ids, oof_pred, folds must have equal length")
@@ -76,6 +79,7 @@ def save_oof(
 
 
 def load_oof(exp_id: str, root: str | Path | None = None) -> tuple[pd.DataFrame, pd.DataFrame | None, dict]:
+    """Load an experiment's saved OOF and test predictions."""
     d = Path(root or oof_root()) / exp_id
     oof = pd.read_parquet(d / "oof.parquet")
     test = pd.read_parquet(d / "test.parquet") if (d / "test.parquet").exists() else None

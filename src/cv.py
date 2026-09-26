@@ -33,6 +33,7 @@ def make_folds(
     seed: int = 42,
     n_bins: int = 20,
 ) -> pd.DataFrame:
+    """Assign k folds (grouped or stratified as configured) with a fixed seed; returns a fold column."""
     if method not in METHODS:
         raise ValueError(f"method must be one of {METHODS}")
     n = len(df)
@@ -72,11 +73,13 @@ def make_folds(
 
 
 def save_folds(folds: pd.DataFrame, path: str | Path) -> None:
+    """Persist the shared folds file so every model uses identical splits."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     folds.to_csv(path, index=False)
 
 
 def load_folds(path: str | Path) -> pd.DataFrame:
+    """Load the shared folds file written by save_folds."""
     return pd.read_csv(path)
 
 

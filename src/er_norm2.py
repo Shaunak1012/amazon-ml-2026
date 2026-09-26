@@ -65,6 +65,7 @@ def addr_norm2(addr_norm: str) -> str:
 
 
 def _chunk(args: tuple[list[str], list[str]]) -> tuple[list[str], list[str]]:
+    """Normalise one chunk of names and addresses (worker function)."""
     names, addrs = args
     return [core_name2(x) for x in names], [addr_norm2(x) for x in addrs]
 
@@ -81,6 +82,7 @@ def norm2_frame(n: pd.DataFrame, workers: int = 30, chunk: int = 250_000) -> pd.
 
 
 def main() -> None:
+    """Write v2 normalisation caches for every source of train and test."""
     import time
 
     from src.er_data import cache_dir

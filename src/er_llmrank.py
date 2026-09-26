@@ -31,6 +31,7 @@ N_COMP = 3
 
 
 def _clip(s: str, n: int) -> str:
+    """Collapse whitespace and truncate a field to n characters for the prompt."""
     s = " ".join(str(s).split())
     return s if len(s) <= n else s[:n] + "…"
 
@@ -65,21 +66,25 @@ def prompts_for(pairs: pd.DataFrame, comp: pd.Series, left: pd.DataFrame, right:
 
 
 def _sources(split: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Raw S1 and S2+S3 frames of a split, indexed by entity_id."""
     from src.er_data import load
     s1, s2, s3, _ = load(split, with_gt=False)
     return s1.set_index("entity_id"), pd.concat([s2, s3], ignore_index=True).set_index("entity_id")
 
 
 def _chunks(d: str, cols: list[str]) -> pd.DataFrame:
+    """Concatenate the given columns of every parquet in a folder."""
     return pd.concat([pd.read_parquet(f, columns=cols) for f in sorted(Path(d).glob("*.parquet"))], ignore_index=True)
 
 
 def _band(ce_dir: str, split: str, lo: float, hi: float) -> pd.DataFrame:
+    """Pairs whose cross-encoder score lies in (lo, hi): the uncertain band the LLM scores."""
     ce = _chunks(f"{ce_dir}/{split}_ce", ["s1_id", "cand_id", "ce_score"])
     return ce[(ce.ce_score > lo) & (ce.ce_score < hi)][["s1_id", "cand_id"]].reset_index(drop=True)
 
 
 def cmd_build(a: argparse.Namespace) -> None:
+    """Build training prompts (folds 1-4) and scoring prompts (fold-0 and test band) with competitor context."""
     from src.er_data import cache_dir
 
     out = Path(a.out)
@@ -124,6 +129,7 @@ def cmd_build(a: argparse.Namespace) -> None:
 
 # ------------------------------------------------------------------------------------------------------ train/score
 def _yes_no_ids(tok) -> tuple[int, int]:
+    """Token ids of ' Yes' and ' No' (each must be a single token)."""
     y, n = tok.encode(" Yes", add_special_tokens=False), tok.encode(" No", add_special_tokens=False)
     assert len(y) == 1 and len(n) == 1, (y, n)
     return y[0], n[0]
@@ -139,6 +145,7 @@ def _last_logits(model, enc):
 
 
 def cmd_train(a: argparse.Namespace) -> None:
+    """LoRA-train the LLM to answer Yes/No at the prompt's last position (cross-entropy on the two tokens)."""
     import torch
     from peft import LoraConfig, get_peft_model
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -193,6 +200,7 @@ def cmd_train(a: argparse.Namespace) -> None:
 
 
 def cmd_score(a: argparse.Namespace) -> None:
+    """P(Yes) for every band prompt, length-sorted batches, resumable per shard."""
     import torch
     from peft import PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -254,6 +262,7 @@ def cmd_to_ce(a: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    """CLI entry point: build / train / score / to-ce."""
     ap = argparse.ArgumentParser(prog="python -m src.er_llmrank")
     sp = ap.add_subparsers(dest="cmd", required=True)
     b = sp.add_parser("build")

@@ -25,16 +25,19 @@ class Config(dict):
     """dict with attribute access (recursively)."""
 
     def __getattr__(self, key: str) -> Any:
+        """Attribute access maps to dict keys (cfg.model.lr)."""
         try:
             return self[key]
         except KeyError as e:
             raise AttributeError(key) from e
 
     def __setattr__(self, key: str, value: Any) -> None:
+        """Attribute assignment writes the dict key."""
         self[key] = value
 
     @classmethod
     def wrap(cls, obj: Any) -> Any:
+        """Wrap nested dicts so every level supports attribute access."""
         if isinstance(obj, dict):
             return cls({k: cls.wrap(v) for k, v in obj.items()})
         if isinstance(obj, list):
@@ -42,7 +45,9 @@ class Config(dict):
         return obj
 
     def to_dict(self) -> dict:
+        """Return a plain (unwrapped) dict copy of the config."""
         def unwrap(o: Any) -> Any:
+            """Convert wrapped config objects back to plain dicts recursively."""
             if isinstance(o, dict):
                 return {k: unwrap(v) for k, v in o.items()}
             if isinstance(o, list):
@@ -53,6 +58,7 @@ class Config(dict):
 
 
 def _deep_merge(base: dict, over: dict) -> dict:
+    """Recursively merge dict b into a copy of a (b wins on conflicts)."""
     out = dict(base)
     for k, v in over.items():
         if isinstance(v, dict) and isinstance(out.get(k), dict):
@@ -63,6 +69,7 @@ def _deep_merge(base: dict, over: dict) -> dict:
 
 
 def _load_yaml(path: Path) -> dict:
+    """Read a YAML file into a dict (empty dict for an empty file)."""
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     parent = data.pop("defaults", None)
@@ -72,6 +79,7 @@ def _load_yaml(path: Path) -> dict:
 
 
 def _set_dotted(d: dict, dotted: str, value: Any) -> None:
+    """Set a nested key given as 'a.b.c' inside dict d, creating levels as needed."""
     keys = dotted.split(".")
     for k in keys[:-1]:
         d = d.setdefault(k, {})
@@ -90,6 +98,7 @@ def load_config(path: str | Path, overrides: Iterable[str] = ()) -> Config:
 
 
 def save_config(cfg: dict, path: str | Path) -> None:
+    """Write the resolved config to a YAML file next to the run artefacts."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     data = cfg.to_dict() if isinstance(cfg, Config) else cfg
     with open(path, "w", encoding="utf-8") as f:
@@ -110,6 +119,7 @@ def get_paths() -> Config:
     load_env()
 
     def resolve(var: str, default: str) -> Path:
+        """Load base.yaml, merge an experiment config and CLI overrides, and return the wrapped result."""
         p = Path(os.environ.get(var) or default)
         return p if p.is_absolute() else (REPO_ROOT / p).resolve()
 
