@@ -121,3 +121,27 @@ def test_cached_frame_builds_once_and_rejects_other_settings(tmp_path):
         cached_frame(a, "train", build)
     a.frames = ""
     assert cached_frame(a, "train", build).equals(first) and len(calls) == 2    # no cache dir: always build
+
+
+def test_frames2_repopulate_matches_rebuilt_frame():
+    """Recomputing competition + rarity on a cached frame equals building the frame with the S1 already dropped."""
+    from types import SimpleNamespace
+
+    from src.er_frames2 import repopulate
+    from src.er_fullpass import stage2_frames
+
+    left = pd.DataFrame({"entity_id": ["S1-1", "S1-2", "S1-3"], "country": ["US"] * 3,
+                         "name_core": ["acme", "acme co", "zen"]}).set_index("entity_id")
+    right = pd.DataFrame({"entity_id": ["S2-a", "S3-b", "S2-c"], "country": ["US"] * 3,
+                          "name_core": ["acme", "zen", "acme"], "addr_norm": ["1 main", "9 elm", "1 main"]}).set_index("entity_id")
+    split = SimpleNamespace(left=left, right=right, embp={"both": np.eye(3, dtype=np.float32)}, views=("both",))
+    chunks = [pd.DataFrame({"s1_id": ["S1-1", "S1-2", "S1-2", "S1-3", "S1-1"],
+                            "cand_id": ["S2-a", "S2-a", "S3-b", "S3-b", "S2-c"],
+                            "prob": [0.9, 0.6, 0.2, 0.7, 0.4], "cos_name": [0.9, 0.8, 0.1, 0.95, 0.3]})]
+    full = stage2_frames(split, chunks, None, ("cos_name",))
+    want = stage2_frames(split, chunks, None, ("cos_name",), drop_s1={"S1-1"}).sort_values(["s1_id", "cand_id"])
+    got = repopulate(full[full.s1_id != "S1-1"].reset_index(drop=True), chunks[0], split, {"S1-1"}, ("cos_name",))
+    got = got.sort_values(["s1_id", "cand_id"])
+    cols = [c for c in want.columns if c.startswith(("s2_other", "s2_margin", "comp_", "rar_"))]
+    assert len(cols) == 10
+    pd.testing.assert_frame_equal(got[cols].reset_index(drop=True), want[cols].reset_index(drop=True))

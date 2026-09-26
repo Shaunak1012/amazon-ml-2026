@@ -3,6 +3,26 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-26 15:30 IST: SH01 distractor simulation (new lever) + sync
+**Teammate sync (shaunak @ ea738d6):** E016 (both CEs) dev 0.9905 → **LB 0.984727 (sub-09)**, rank 67; leader still
+0.990556. Dev→LB gap is still ~0.006. Shaunak now runs **E018 = French CE self-training on test pseudo-labels** and
+E019 = best features + E018 CE + cached frames (`--frames runs/frames/E019`). → This branch **drops its France
+self-training plan** (duplicate) and takes the gap that nobody is working on:
+
+**Finding: test has ~2× more unmatched pool records per S1 than train.** The generator is very uniform: train has
+3.46 matches/S1 and 5.6% singletons in both countries, and 26% of pool records are unmatched. Pool/S1 is 4.68 in train
+but 5.76 (US), 5.82 (India) and 5.53 (France) in test. With the same 3.46 matches/S1 (team test predictions ~3.2/S1 are
+consistent with this), test has **~2.3 distractors per S1 vs 1.2 in train**. Stage 2's record-level features (best
+OTHER S1, margin) and the decision threshold were learned in the sparser world, so test produces more false merges
+on distractors whose own S1 is absent. That fits a US/India dev→LB gap that shrinks with better matchers but never
+closes.
+
+**SH01 (code ready, tests green):** drop 19% of train S1s (1 - 4.68/5.75) so their matched records become
+distractors, recompute competition + rarity features over the reduced population, refit stage 2. Two arms on the
+same test-like dev: `--drop-in eval` (current recipe, fair baseline) vs `--drop-in both` (test-like training).
+Runs on the SageMaker CPU box from E019's cached frames (`src/er_frames2.py`), so it does not touch the GPU box queue;
+also available in `er_fullpass stage2 --drop-s1-frac/--drop-in`.
+
 ## 2026-09-26 14:30 IST: sync + plan
 **Team state (main/shaunak @ aca60ee/f9f9a90):** best LB sub-08 **0.983322** (E015: fine-tuned bi-encoder view +
 stage 1/2 on fold 0; dev 0.9898). E016 (second CE, e5-base) and E017 (name competition features) are running on the
