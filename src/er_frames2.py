@@ -83,6 +83,8 @@ def main() -> None:
     ap.add_argument("--drop-s1-frac", type=float, default=0.0)
     ap.add_argument("--drop-in", choices=["both", "eval"], default="both")
     ap.add_argument("--drop-seed", type=int, default=11)
+    ap.add_argument("--dev-drop-seed", type=int, default=None, help="dev population seed (default: --drop-seed)")
+    ap.add_argument("--dev-drop-frac", type=float, default=None, help="dev drop fraction (default: --drop-s1-frac)")
     ap.add_argument("--fit-without-dropped", action="store_true",
                     help="eval mode only: also remove the dropped S1s' fit rows (same fit size as 'both', no recompute)")
     ap.add_argument("--lr", type=float, default=0.1)
@@ -98,20 +100,27 @@ def main() -> None:
     folds = pd.read_parquet(cache_dir() / "folds_s1_k5.parquet").set_index("s1_id")
     X = pd.read_parquet(Path(a.frames) / "train_frame.parquet")
     drop: set = set()
+    dev_drop: set = set()
     if a.drop_s1_frac > 0:
         ids = folds.index.to_numpy()
-        drop = set(np.random.default_rng(a.drop_seed).choice(ids, int(round(a.drop_s1_frac * len(ids))), replace=False))
+        n_drop = int(round(a.drop_s1_frac * len(ids)))
+        drop = set(np.random.default_rng(a.drop_seed).choice(ids, n_drop, replace=False))
+        # dev population: fixed by --dev-drop-seed (default = drop seed) so arms with different training drops
+        # are scored on identical dev S1s/features and can be averaged
+        dev_seed = a.dev_drop_seed if a.dev_drop_seed is not None else a.drop_seed
+        dev_n = int(round((a.dev_drop_frac if a.dev_drop_frac is not None else a.drop_s1_frac) * len(ids)))
+        dev_drop = set(np.random.default_rng(dev_seed).choice(ids, dev_n, replace=False))
     drop_fit = drop if a.drop_in == "both" else set()
     is_dev = folds.dev.reindex(X.s1_id).to_numpy(bool)
     fit_excl = drop if (a.fit_without_dropped or a.drop_in == "both") else set()
     Xtr = X[~is_dev & ~X.s1_id.isin(fit_excl).to_numpy()].reset_index(drop=True)
-    Xdev = X[is_dev & ~X.s1_id.isin(drop).to_numpy()].reset_index(drop=True)
+    Xdev = X[is_dev & ~X.s1_id.isin(dev_drop).to_numpy()].reset_index(drop=True)
     del X
     if drop:
         allp = pd.read_parquet(a.train_min, columns=["s1_id", "cand_id", "prob", *a.comp_cols])
         nm = names("train")
         Xtr = repopulate(Xtr, allp, nm, drop_fit, tuple(a.comp_cols))
-        Xdev = repopulate(Xdev, allp, nm, drop, tuple(a.comp_cols))
+        Xdev = repopulate(Xdev, allp, nm, dev_drop, tuple(a.comp_cols))
         del allp
     log(f"frames: fit {Xtr.shape}, dev {Xdev.shape}, dropped {len(drop):,} S1 ({a.drop_in}) [{time.time() - t0:.0f}s]")
 
