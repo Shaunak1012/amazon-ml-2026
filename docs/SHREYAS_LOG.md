@@ -3,6 +3,19 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-26 19:40 IST: CS02 low floors
+| floor | cand/S1 | recall | dev F0.5 | vs top-15 |
+|---|---|---|---|---|
+| 0.003 | 6.43 | 0.9961 | 0.99087 | -0.00010 |
+| 0.005 | 5.93 | 0.9954 | 0.99083 | -0.00014 |
+| 0.0075 | 5.53 | 0.9944 | 0.99079 | -0.00018 |
+| 0.01 | 5.25 | 0.9936 | 0.99073 | -0.00024 |
+| top-10 + 0.005 | 5.77 | 0.9949 | 0.99081 | -0.00016 |
+
+0.003-0.01 are within noise of each other; knee at ~0.01. **Recommendation: floor 0.005 (5.9/S1, 2.5x smaller)**, or
+0.01 (5.25/S1) if candidate size is weighted more. France is unmeasured (stage 1 never saw French data): CS03 checks
+test candidates/S1 by country and the share of E020-accepted pairs each floor would cut, once the E020 frame lands.
+
 ## 2026-09-26 19:20 IST: CS01 candidate-set size vs F0.5 (organisers' update: smaller candidate sets rank higher)
 E019 train frame, normal density, competition features recomputed on the pruned population, stage 2 refit per
 setting. Dev = all 100k dev S1 (S1s left with no candidates are scored as predicted empty).
