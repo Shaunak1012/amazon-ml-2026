@@ -439,7 +439,8 @@ def cmd_stage2(a: argparse.Namespace) -> None:
         train_countries = set(pd.read_parquet(cache_dir() / "train_s1.parquet", columns=["country"]).country.unique())
         ctry = te.s1.set_index("entity_id").country
         unseen = ~ctry.reindex(probs.s1_id).isin(train_countries).to_numpy()
-        m2 = {k: v for k, v in matches.items() if k not in set(probs.s1_id[unseen])}
+        unseen_s1 = set(probs.s1_id[unseen])            # built once (inside the comprehension it was O(n^2): hung)
+        m2 = {k: v for k, v in matches.items() if k not in unseen_s1}
         m2.update(decide(probs[unseen], a.unseen_threshold, assign=True))
         log(f"unseen-country variant: {int(unseen.sum()):,} pairs of countries {sorted(set(ctry[~ctry.isin(train_countries)]))}")
         write_outputs(m2, cands, te.s1.entity_id.to_numpy(), Path(a.out + "_unseen"), test_dir=dataset_dir() / "test")
