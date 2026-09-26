@@ -131,6 +131,7 @@ before final rankings are confirmed. Code needs proper comments describing the f
 | intfloat/multilingual-e5-small | embedding model, offline | MIT | 118M | allowed; fine-tuning (if any) only on provided train data |
 | microsoft/mdeberta-v3-base (planned) | cross-encoder backbone, offline | MIT | 278M | allowed |
 | intfloat/multilingual-e5-base (E016 cross-encoder) | cross-encoder backbone, offline | MIT | 278M | allowed; fine-tuned only on provided data |
+| intfloat/multilingual-e5-large (E027 cross-encoder) | cross-encoder backbone, offline | MIT (model card, checked 27 Sep) | 560M | allowed (<= 8B); fine-tuned only on provided data (folds 1-4) |
 | **Qwen/Qwen3-4B** (planned LLM reranker, LoRA) | decoder LLM as a pair classifier, offline | Apache-2.0 (model card, checked 26 Sep) | 4.0B | allowed (<= 8B); fine-tuned only on provided data |
 | Qwen/Qwen2.5-7B-Instruct (optional larger reranker) | decoder LLM, offline | Apache-2.0 | 7.6B | allowed (<= 8B) |
 | Qwen/Qwen2.5-1.5B-Instruct (fallback reranker) | decoder LLM, offline | Apache-2.0 (model card, checked 26 Sep) | 1.54B | allowed |

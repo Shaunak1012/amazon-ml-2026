@@ -370,9 +370,20 @@ def cmd_score(a: argparse.Namespace) -> None:
                    every_steps=1, meta={"model": str(a.model), "chunks": str(a.chunks)}) as hb:
         keep = excluded_s1(a.only_folds) if a.only_folds else None   # S1s whose pairs we actually need
         for p in todo:
-            pairs = pd.read_parquet(p, columns=["s1_id", "cand_id"])
+            pairs = pd.read_parquet(p, columns=["s1_id", "cand_id"] + (["prob"] if a.keep_prob else []))
             scores = np.full(len(pairs), np.nan, dtype=np.float32)   # rows stay aligned with the chunk
             sel = np.ones(len(pairs), bool) if keep is None else pairs.s1_id.isin(keep).to_numpy()
+            if a.keep_prob:
+                # only the final candidate rows (stage-1 prob >= keep_prob OR filter CE >= keep_ce), as in
+                # er_fullpass.prune_rows; the filter CE's files are row-aligned with the chunks (same names)
+                cand = pairs.pop("prob").to_numpy() >= a.keep_prob
+                if a.keep_ce_dir:
+                    ce = pd.read_parquet(Path(a.keep_ce_dir) / f"{a.split}_ce" / p.name)
+                    if len(ce) != len(pairs) or not (ce.cand_id.to_numpy() == pairs.cand_id.to_numpy()).all():
+                        raise ValueError(f"{a.keep_ce_dir} rows misaligned with {p.name}")
+                    cand |= np.nan_to_num(ce.ce_score.to_numpy(np.float32), nan=0.0) >= a.keep_ce
+                sel &= cand
+                print(f"{p.name}: scoring {sel.sum():,} of {len(pairs):,} rows (final candidate filter)")
             if sel.any():
                 scores[sel] = score_loaded(model, tok, dev, pairs[sel].reset_index(drop=True), left, right,
                                            batch=a.batch, max_len=a.max_len)
@@ -417,6 +428,10 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--device", default=None)
     s.add_argument("--only-folds", type=int, nargs="*", default=[],
                    help="score only S1s in these folds (others get NaN, rows stay aligned); e.g. 0 3 4")
+    s.add_argument("--keep-prob", type=float, default=0.0,
+                   help="score only rows with stage-1 prob >= this OR --keep-ce-dir score >= --keep-ce (others NaN)")
+    s.add_argument("--keep-ce-dir", default="", help="filter CE run dir with <split>_ce/ (e.g. runs/E016-ce)")
+    s.add_argument("--keep-ce", type=float, default=0.0)
     s.set_defaults(fn=cmd_score)
     a = ap.parse_args(argv)
     a.fn(a)
