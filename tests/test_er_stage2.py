@@ -1,7 +1,7 @@
 """Cluster (second-stage) features on a toy case with a hard true match that resembles the confident anchor."""
 import numpy as np
-import pytest
 import pandas as pd
+import pytest
 
 from src.er_stage2 import cluster_features
 
@@ -63,6 +63,29 @@ def test_with_ce_attaches_one_column_per_dir(tmp_path):
     out = with_ce(chunks, [str(tmp_path / "a"), str(tmp_path / "b")], "train")
     assert out[0].ce_score.tolist() == pytest.approx([0.8, 0.2]) and out[0].ce_score_2.tolist() == pytest.approx([0.7, 0.3])
     assert with_ce(chunks, "", "train") is chunks and with_ce(chunks, [], "train") is chunks
+
+
+def test_stage2_frames_drop_s1_makes_record_uncontested():
+    """Distractor simulation: once S1-1 is dropped, S2-a (its record) has no other S1 competing with S1-2."""
+    from types import SimpleNamespace
+
+    from src.er_fullpass import stage2_frames
+
+    left = pd.DataFrame({"entity_id": ["S1-1", "S1-2"], "country": ["US", "US"],
+                         "name_core": ["acme", "acme co"]}).set_index("entity_id")
+    right = pd.DataFrame({"entity_id": ["S2-a", "S3-b"], "country": ["US", "US"], "name_core": ["acme", "zen"],
+                          "addr_norm": ["1 main st", "9 elm rd"]}).set_index("entity_id")
+    e = np.eye(2, dtype=np.float32)
+    split = SimpleNamespace(left=left, right=right, embp={"both": e}, views=("both",))
+    chunks = [pd.DataFrame({"s1_id": ["S1-1", "S1-2", "S1-2"], "cand_id": ["S2-a", "S2-a", "S3-b"],
+                            "prob": [0.9, 0.6, 0.2]})]
+    full = stage2_frames(split, chunks, None)
+    dropped = stage2_frames(split, chunks, None, drop_s1={"S1-1"})
+    assert len(full) == 3 and len(dropped) == 2 and set(dropped.s1_id) == {"S1-2"}
+    row = full[(full.s1_id == "S1-2") & (full.cand_id == "S2-a")].iloc[0]
+    assert row.s2_other_s1_best == pytest.approx(0.9)          # S1-1 competes for S2-a
+    assert dropped.s2_other_s1_best[0] == 0.0                   # ...and is gone after the drop
+    assert dropped.rar_s1_same_name_s1[0] == 1.0 and len(chunks[0]) == 3   # input chunks untouched
 
 
 def test_competition_features_on_other_column():

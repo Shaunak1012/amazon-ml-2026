@@ -142,15 +142,18 @@ def with_ce(chunks: list[pd.DataFrame], ce_dirs, split: str) -> list[pd.DataFram
     return chunks
 
 
-def name_rarity(split_obj: Split) -> tuple[pd.DataFrame, pd.DataFrame]:
+def name_rarity(split_obj: Split, drop_s1: set | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Label-free name-rarity signals per record, computed over the whole split (S1 and S2+S3 separately).
 
     Error analysis (E010 dev): many remaining errors are candidates with an EMPTY address, where only the name can
     decide; a unique name is almost surely a match, a common one is ambiguous. Pool counts are normalised by the
     pool/S1 size ratio per country, because test has ~23% more S2+S3 records per S1 than train.
     Returns (left_feats indexed by S1 id, right_feats indexed by S2/S3 id).
+    drop_s1: S1 ids treated as absent (distractor simulation, see stage2_frames).
     """
     L, R = split_obj.left, split_obj.right
+    if drop_s1:
+        L = L[~L.index.isin(drop_s1)]
     lk = L.country.astype(str) + "|" + L.name_core.astype(str)
     rk = R.country.astype(str) + "|" + R.name_core.astype(str)
     s1_cnt, pool_cnt = lk.value_counts(), rk.value_counts()
@@ -181,11 +184,15 @@ def name_rarity(split_obj: Split) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | None,
-                  comp_cols: tuple[str, ...] = ()) -> pd.DataFrame:
+                  comp_cols: tuple[str, ...] = (), drop_s1: set | None = None) -> pd.DataFrame:
     """Stage-2 design matrix: sibling feats per chunk (chunks partition S1) + competition feats over ALL chunks.
 
     comp_cols: extra stage-1 columns (e.g. name_full_tset) whose record-level "best other S1" competition features
-    are added, computed over the full population like the prob ones."""
+    are added, computed over the full population like the prob ones.
+    drop_s1: S1 ids removed from the population before any cross-S1 feature is computed, so their matched records
+    become unmatched distractors (test has ~2.3 distractor records per S1 vs ~1.2 in train; docs/SHREYAS_LOG.md)."""
+    if drop_s1:
+        chunks = [c[~c.s1_id.isin(drop_s1)].reset_index(drop=True) for c in chunks]
     allp = pd.concat([c[["s1_id", "cand_id", "prob", *comp_cols]] for c in chunks], ignore_index=True)
     comp = competition_features(allp)
     for col in comp_cols:
@@ -194,7 +201,7 @@ def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | N
     del allp
     parts, off = [], 0
     emb = {v: split_obj.embp[v] for v in split_obj.views}
-    rl, rr = name_rarity(split_obj)
+    rl, rr = name_rarity(split_obj, drop_s1)
     for c in chunks:
         n = len(c)
         sel = np.ones(n, bool) if keep_s1 is None else c.s1_id.isin(keep_s1).to_numpy()
@@ -246,6 +253,8 @@ def cached_frame(a: argparse.Namespace, name: str, build) -> pd.DataFrame:
     fd.mkdir(parents=True, exist_ok=True)
     key = {"exp": a.exp, "ce_dir": list(a.ce_dir), "comp_cols": list(a.comp_cols), "views": list(a.views),
            "fit_folds": list(a.fit_folds), "train_s1": a.train_s1}
+    if getattr(a, "drop_s1_frac", 0):                  # distractor simulation changes the train frame
+        key.update(drop_s1_frac=a.drop_s1_frac, drop_in=a.drop_in)
     meta, path = fd / "frames.json", fd / f"{name}_frame.parquet"
     if meta.exists() and json.loads(meta.read_text(encoding="utf-8")) != key:
         raise ValueError(f"{fd} was built for {meta.read_text()}, not {key}; use another --frames dir")
@@ -267,20 +276,34 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     rd = run_dir(a.exp)
     d = Split("train", a.model, a.views)
     folds = pd.read_parquet(cache_dir() / "folds_s1_k5.parquet").set_index("s1_id")
+    # distractor simulation: drop a random share of ALL train S1s (their records become unmatched pool records)
+    drop: set = set()
+    if a.drop_s1_frac > 0:
+        ids = d.s1.entity_id.to_numpy()
+        drop = set(np.random.default_rng(11).choice(ids, size=int(round(a.drop_s1_frac * len(ids))), replace=False))
+    drop_fit = drop if a.drop_in == "both" else set()
+    drop_dev = drop                                   # "eval": baseline model scored in the test-like regime
     rng = np.random.default_rng(7)
-    pool = folds.index[folds.fold.isin(a.fit_folds) & ~folds.dev].to_numpy()   # dev never fits (fold 0 holds dev)
-    fit_ids = set(rng.choice(pool, size=min(a.train_s1, len(pool)), replace=False))
-    dev_ids = set(folds.index[folds.dev])
-    X = cached_frame(a, "train", lambda: stage2_frames(d, with_ce(load_chunks(rd, "train"), a.ce_dir, "train"),
-                                                       fit_ids | dev_ids, tuple(a.comp_cols)))
-    log(f"stage-2 frame {X.shape} [{time.time() - t0:.0f}s]")
+    pool = folds.index[folds.fold.isin(a.fit_folds) & ~folds.dev & ~folds.index.isin(drop_fit)].to_numpy()
+    fit_ids = set(rng.choice(pool, size=min(a.train_s1, len(pool)), replace=False))   # dev never fits
+    dev_ids = set(folds.index[folds.dev & ~folds.index.isin(drop_dev)])
+
+    def build_train() -> pd.DataFrame:
+        chunks = with_ce(load_chunks(rd, "train"), a.ce_dir, "train")
+        if drop_fit == drop_dev:
+            return stage2_frames(d, chunks, fit_ids | dev_ids, tuple(a.comp_cols), drop_fit)
+        return pd.concat([stage2_frames(d, chunks, fit_ids, tuple(a.comp_cols), drop_fit),
+                          stage2_frames(d, chunks, dev_ids, tuple(a.comp_cols), drop_dev)], ignore_index=True)
+
+    X = cached_frame(a, "train", build_train)
+    log(f"stage-2 frame {X.shape}, dropped {len(drop):,} S1 ({a.drop_in}) [{time.time() - t0:.0f}s]")
     is_dev = X.s1_id.isin(dev_ids).to_numpy()
     Xtr, Xdev = X[~is_dev].reset_index(drop=True), X[is_dev].reset_index(drop=True)
     y_tr, y_dev = d.truth(sorted(fit_ids)), d.truth(sorted(dev_ids))
     # stage-1-only reference on the same (full-population, top-k) candidates
     p1_tr = Xtr[["s1_id", "cand_id", "prob"]]
     rule1, t1, _ = choose_decision(p1_tr, y_tr)
-    res = {"exp": a.exp, "stage1_dev_f05": er_fbeta_macro(y_dev, apply_decision(Xdev[["s1_id", "cand_id", "prob"]], rule1, t1))}
+    res = {"exp": a.exp, "drop_s1_frac": a.drop_s1_frac, "drop_in": a.drop_in, "n_dev": len(dev_ids), "stage1_dev_f05": er_fbeta_macro(y_dev, apply_decision(Xdev[["s1_id", "cand_id", "prob"]], rule1, t1))}
     feat = Xtr.drop(columns=["prob"])
     feat["s1_prob"] = Xtr.prob.to_numpy()
     groups = folds.fold.reindex(Xtr.s1_id).to_numpy()
@@ -383,6 +406,10 @@ def main() -> None:
     s2.add_argument("--lgb-params", default="", help='JSON LightGBM overrides, e.g. {"num_leaves": 255}')
     s2.add_argument("--comp-cols", nargs="*", default=[],
                     help="stage-1 columns for extra full-population competition features, e.g. name_full_tset")
+    s2.add_argument("--drop-s1-frac", type=float, default=0.0,
+                    help="treat this share of train S1s as absent (test-like distractor density; ~0.19 matches test)")
+    s2.add_argument("--drop-in", choices=["both", "eval"], default="both",
+                    help="both: fit + dev in the dropped population; eval: fit as usual, dev scored dropped (baseline)")
     s2.add_argument("--stage3", action="store_true",
                     help="refit once with anchors re-picked from stage-2 probs; the test run then uses stage 3")
     a = ap.parse_args()
