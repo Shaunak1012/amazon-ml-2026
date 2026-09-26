@@ -29,11 +29,13 @@ from src.er_crossenc import load_model, load_sources, score_loaded, train
 NEG_FLOOR = 0.05
 
 
-def pseudo_pairs(probs: pd.DataFrame, chunks_dir: str, country_of: pd.Series, country: str, pos_thr: float,
+def pseudo_pairs(probs: pd.DataFrame, chunks_dir: str, country_of: pd.Series, country, pos_thr: float,
                  neg_thr: float, n_pos: int, n_neg: int, seed: int = 0) -> pd.DataFrame:
-    """Confident pseudo-labelled test pairs of one country: [s1_id, cand_id, y]. Negatives favour high stage-1 prob."""
+    """Confident pseudo-labelled test pairs of the given country (or list of countries): [s1_id, cand_id, y].
+    Negatives favour high stage-1 prob."""
+    countries = [country] if isinstance(country, str) else list(country)
     rng = np.random.default_rng(seed)
-    p = probs[country_of.reindex(probs.s1_id).to_numpy() == country]
+    p = probs[np.isin(country_of.reindex(probs.s1_id).to_numpy(), countries)]
     s1p = pd.concat([pd.read_parquet(f, columns=["s1_id", "cand_id", "prob"]).rename(columns={"prob": "p1"})
                      for f in sorted(Path(chunks_dir).glob("*.parquet"))], ignore_index=True)
     p = p.merge(s1p, on=["s1_id", "cand_id"], how="left")
@@ -77,7 +79,7 @@ def cmd_train(a: argparse.Namespace) -> None:
         pairs = pd.concat([pl, orig[["s1_id", "cand_id", "y"]]]).sample(frac=1.0, random_state=a.seed)
         pairs = pairs.reset_index(drop=True)
         pairs.to_parquet(pairs_path, index=False)
-        print(f"pseudo pairs {len(pl):,} ({pl.y.mean():.1%} pos, {a.country}) + {len(orig):,} original train pairs")
+        print(f"pseudo pairs {len(pl):,} ({pl.y.mean():.1%} pos, {' '.join(a.country)}) + {len(orig):,} original train pairs")
     left, right = prefixed_sources()
     train(pairs, left, right, out, model_name=a.base, epochs=1, batch=a.batch, lr=a.lr, max_len=96,
           ckpt_every=2000, seed=a.seed)
@@ -103,7 +105,9 @@ def cmd_score(a: argparse.Namespace) -> None:
             if (out / "test_ce" / f.name).exists():
                 continue
             ce = pd.read_parquet(f)
-            sel = (country_of.reindex(ce.s1_id).to_numpy() == a.country)
+            sel = np.isin(country_of.reindex(ce.s1_id).to_numpy(), a.country)
+            if a.uncertain:     # only pairs the base CE is unsure about; confident ones keep the base score
+                sel &= ((ce.ce_score > a.uncertain[0]) & (ce.ce_score < a.uncertain[1])).to_numpy()
             if sel.any():
                 ce.loc[sel, "ce_score"] = score_loaded(model, tok, dev, ce.loc[sel, ["s1_id", "cand_id"]].reset_index(drop=True),
                                                        left, right, batch=a.batch)
@@ -111,7 +115,7 @@ def cmd_score(a: argparse.Namespace) -> None:
             ce.to_parquet(tmp, index=False)
             os.replace(tmp, out / "test_ce" / f.name)
             hb.step(i + 1, force=True)
-            print(f"{f.name}: {int(sel.sum()):,} {a.country} rows re-scored [{time.time() - t0:.0f}s]", flush=True)
+            print(f"{f.name}: {int(sel.sum()):,} {' '.join(a.country)} rows re-scored [{time.time() - t0:.0f}s]", flush=True)
 
 
 def main() -> None:
@@ -120,7 +124,7 @@ def main() -> None:
     t = sp.add_parser("train")
     t.add_argument("--probs", required=True, help="stage-2 test probabilities (s1_id, cand_id, prob)")
     t.add_argument("--chunks", default="runs/E015/test_chunks", help="stage-1 test chunks (for hard-negative weights)")
-    t.add_argument("--country", required=True)
+    t.add_argument("--country", nargs="+", required=True)
     t.add_argument("--base", required=True, help="cross-encoder dir to continue from (has train_pairs.parquet)")
     t.add_argument("--out", required=True)
     t.add_argument("--pos-thr", type=float, default=0.97)
@@ -133,7 +137,9 @@ def main() -> None:
     t.add_argument("--seed", type=int, default=0)
     s = sp.add_parser("score")
     s.add_argument("--model", required=True)
-    s.add_argument("--country", required=True)
+    s.add_argument("--country", nargs="+", required=True)
+    s.add_argument("--uncertain", type=float, nargs=2, default=None, metavar=("LO", "HI"),
+                   help="re-score only rows whose base CE score is in (LO, HI), e.g. 0.02 0.98")
     s.add_argument("--base-ce", required=True, help="CE score dir to copy (train_ce) and patch (test_ce)")
     s.add_argument("--out", required=True)
     s.add_argument("--batch", type=int, default=512)
