@@ -111,9 +111,14 @@ def test_density_mask_keeps_fit_dev_and_thins_others():
     assert density_mask(allp, always, 1.0).all()
 
 
-def test_prune_keeps_pairs_above_eps_and_is_noop_at_zero():
-    from src.er_fullpass import prune
+def test_prune_rows_stage1_only_and_or_rule_with_ce(tmp_path):
+    from src.er_fullpass import prune_rows
 
-    c = [pd.DataFrame({"s1_id": ["a", "a", "b"], "cand_id": ["x", "y", "z"], "prob": [0.5, 0.0005, 0.004]})]
-    assert prune(c, 0.0) is c
-    assert prune(c, 0.003)[0].cand_id.tolist() == ["x", "z"]
+    X = pd.DataFrame({"s1_id": ["a", "a", "b", "b"], "cand_id": ["x", "y", "z", "w"], "prob": [0.5, 0.001, 0.004, 0.0]})
+    assert prune_rows(X, "train", 0.0) is X
+    assert prune_rows(X, "train", 0.003).cand_id.tolist() == ["x", "z"]
+    (tmp_path / "train_ce").mkdir()
+    pd.DataFrame({"s1_id": ["a", "a", "b", "b"], "cand_id": ["x", "y", "z", "w"],
+                  "ce_score": [0.9, 0.5, 0.0, 0.005]}).to_parquet(tmp_path / "train_ce" / "000.parquet")
+    kept = prune_rows(X, "train", 0.003, str(tmp_path), 0.01).cand_id.tolist()
+    assert kept == ["x", "y", "z"]          # y rescued by the CE (0.5 >= 0.01); w fails both
