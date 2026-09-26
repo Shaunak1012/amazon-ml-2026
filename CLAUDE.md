@@ -1,5 +1,23 @@
 # CLAUDE.md — Amazon ML Challenge 2026
 
+## Shreyas branch rules (this clone; read first, they override anything below)
+- **Write only to `shreyas`.** Commit on `shreyas` and push with `git push origin shreyas`. Never commit to or push
+  `main`, `shaunak`, `solanki`, `shivam`, or tags. Enforced by `scripts/githooks/pre-push`
+  (`git config core.hooksPath scripts/githooks`); never bypass it.
+- **Read every branch.** `git fetch --all --prune` often; review teammates with `git log origin/<b> --oneline -15`,
+  `git diff shreyas origin/<b> -- docs/ src/`. Pull their work in with `git merge origin/main` (or cherry-pick);
+  never rewrite shared history.
+- **Tracking teammates:** after each fetch, read new entries in `docs/EXPERIMENTS.md`, `docs/SUBMISSIONS.md`,
+  `docs/DAILY_LOG.md` on every branch; log what they tried, what worked, and what failed in `docs/SHREYAS_LOG.md`
+  so this branch explores *different* levers instead of duplicating theirs.
+- **Goal:** public LB > 0.995 (team best sub-08 0.983322; leader 0.9906 on 26 Sep). Window closes 27 Sep 23:59 IST.
+- **Compute = AWS SageMaker (user's account, ~$180 credit, ap-southeast-2).** The IAM user `shreyas` only has S3;
+  compute runs in the user's SageMaker Studio JupyterLab space, which polls an S3 job queue
+  (`scripts/sm/` — see `docs/SHREYAS_SAGEMAKER.md`). Track spend; stop the space when idle.
+- **Model routing for this branch:** Opus for reasoning, strategy and code generation; the cheapest model (Haiku)
+  for monitoring jobs, reading logs, and polling the repo.
+- Submissions are shared (5/day team-wide): never upload; propose a SUBMIT REQUEST to the user with dev F0.5.
+
 ## Stakes
 **Goal: finish #1 on the leaderboard, not just place.** Top 50 get Applied Scientist Intern PPIs; only the
 top 10 (leaderboard + approach doc) reach the Grand Finale (7 Oct 2026). Being in the top 500 at the 48 h mark
