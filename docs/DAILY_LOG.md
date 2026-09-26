@@ -8,33 +8,36 @@ mid-way should catch up in 2 minutes. Also keep the GPU queue current.
 |---|---|---|---|
 | — | — | — | — |
 
-## HANDOFF — 2026-09-26 22:05 IST (read this first in a new session)
-**Leaderboard:** best = sub-10 (E020) **0.985645**; leader 0.990748. Our slots: ~1/day (team shares 5/day).
-**Goal (user):** candidate_pairs ~4.71/S1 (recall 0.9963, reduction 99.99988%) and matching as close as possible to the
-0.99892 dev ceiling. Report BOTH files for every experiment (dev F0.5, LB, cands/S1, candidate recall, ceiling).
+## HANDOFF — 2026-09-26 23:40 IST (read this first in a new session; supersedes all earlier notes)
+**LB:** sub-10 (E020, self-trained) **0.985645** = best; sub-11 (E017, same w/o self-training) 0.985144 -> self-training
+= +0.0005 LB. Leader 0.990748; **user target 0.9908 (rank 1)**. Slots 27 Sep: **5**. Deadline 27 Sep 23:59 IST.
+**Goal (both files equal priority):** candidate_pairs ~4.71/S1 (stage-1>=0.2 OR E016 CE>=0.01; dev recall 0.9963, fit-pool
+0.9962; test FR 5.73/IN 4.60/US 4.53) + matching toward the 0.99892 dev ceiling. Report dev F0.5, LB, cands/S1, recall.
+**Decided (user):** drop self-training UNLESS organisers confirm it is allowed (Google Form); clean pre-feature filter =
+optional; both TSVs from ONE stage-2 run; zip from one commit/tag; no stage-2 launch after 19:30.
 
-**Kept for the final build (E023):** E020 CE dirs (runs/E015-ce + runs/E020-ce) + E022 reranker feature (Qwen3-4B LoRA,
-dev 0.99116, +0.00019) + E024 --norm2 + E025 --comp-keep 0.78 (+0.00064 at test-like density) + comp-cols
-(cos_name name_ratio name_jw name_full_tset name_tsort) + candidate filter --prune-eps 0.2 --prune-ce-dir runs/E016-ce
---prune-ce 0.01 (4.71/S1). E026 tuning = no gain (defaults). Stage-2 seed averaging still to add to cmd_stage2.
+**Running overnight (chains in runs/*-chain.log, launched from the OLD chat; keep it open):**
+1. E022b (E022 test scoring done 23:20) -> E022-dev (CPU, ~00:00; dev check only).
+2. E022x (GPU): reranker on the wider band (data runs/E021-llm/data_ext) -> runs/E022-llmce-full (~06:30).
+3. E023a-core (CPU, after E022-dev, ~01:30): stage2 --ce-dir runs/E015-ce runs/E016-ce runs/E022-llmce --norm2
+   --comp-keep 0.78 --comp-cols cos_name name_ratio name_jw name_full_tset name_tsort --prune-eps 0.2 --prune-ce-dir
+   runs/E016-ce --prune-ce 0.01 --unseen-threshold 0.85 -> submissions/sub_E023a_core (+ _unseen), validators in
+   runs/E015/sub_E023a_core/validate_*.txt, probs/stage2.json copied there.
+4. E023a-ST (CPU, after 3, ~03:00): same with runs/E020-ce (self-trained) -> submissions/sub_E023a_st; candidate file
+   must be byte-identical to E023a-core (chain prints it).
+Watchdogs: GPU-spill + health (background), Discord via monitor.notify. Keep-awake on.
 
-**Running overnight (chains, watched):** runs/E022b-chain.log (E022 test scoring -> to-ce -> E022-dev), then
-runs/E022x-chain.log (reranker on wider band, data runs/E021-llm/data_ext -> merged feature runs/E022-llmce-full, ~07:00).
-Batch 32 (batch 64 spilled GPU memory). Keep-awake on; don't close the app.
-
-**Team (for the doc):** Shaunak A. Rai, Shaswat Solanki, Shivam Anand, Shreyas Sreenivas. **Slots 27 Sep: 5.** Portal takes matching_results.tsv only (an early candidate/zip upload errored); final zip upload expected on the last day.
-**Reviews 26 Sep night:** packaging (README stale; unrecorded steps E014/E015/E021 data10/data_ext; hand-copied pseudo-label parquet; need scripts/reproduce.sh; pin HF revisions; exclude .ps1), compliance (self-training on test = DQ risk vs 'provided training data' -> recommend drop; stage-2 context features read the 15 not the 4.71 -> prune chunks before features; FAISS scalability benchmark; fix 'learned abbreviation maps' wording).
-**ML review (26 Sep night):** no leakage. Gap 0.0054 = density ~0.0011 (E025) + France >=0.0024 + denser pool ~0.0002 + test overconfidence ~0.001-0.002. Honest dev to compare with LB = test-like-density ~0.9904. Do: E023 WITH --comp-keep 0.78 + joint dev check at test-like density; stricter threshold (0.85) for countries unseen in train as an LB A/B (1 slot); 5-seed stage-2 average incl. density seed; drop self-training (unvalidated + compliance risk). Ignore: more tuning/decision/retrieval.
-**Final-day plan v2:** 07:00 overnight check -> code (seeds, unseen-country threshold, scripts/reproduce.sh) + GPU: E016 CE on train folds 1-4 (for the clean pre-feature filter) -> ~10:00 upload E023a and E023a+unseen-threshold -> E023-clean (prune before features, recalibrate comp-keep) + refit gate -> docs/zip -> final <=22:00. DECIDED (user, 26 Sep 22:40): drop self-training = YES; clean pre-feature filter = YES. Hard rule: both TSVs come from ONE stage-2 run and the zip from one commit.
-**Final-day plan v3 (red team, 26 Sep 23:00) — supersedes v2:** G0 07:00: chains done? dev-check runs/E022-llmce-full vs core (use full only if dev >=). 07:30 commit -> E023a = stage2 --ce-dir runs/E015-ce runs/E016-ce <llm feature> --norm2 --comp-keep 0.78 --comp-cols ... --prune-eps 0.2 --prune-ce-dir runs/E016-ce --prune-ce 0.01 --unseen-threshold 0.85 --frames <NEW dir> --out submissions/sub_E023a (writes _unseen variant from the SAME run). G1 ~09:30: validators pass, 4.6-4.8 cands/S1, dev (test-like density) >= 0.9903 -> tag, upload sub-11 (E023a) + sub-12 (_unseen); build a safety zip from the sub-11 tag at once. GATE: if E023a LB < 0.985645 (sub-10, self-trained) the team decides best-LB vs no-risk. Clean pre-feature filter = OPTIONAL (only via restricted, quantile-matched fold 1-4 CE scoring; new frames dir; key lacks prune params). No dev refit. No stage-2 launch after 19:30. Final <= 22:00: zip TSVs byte-identical (sha256) to an uploaded file; make_submission_zip --ref <sub tag>. Fallback = best compliant upload + its tagged zip.
-**Docs drafted (26 Sep 23:40):** scripts/reproduce.sh, docs/REPRODUCE.md, docs/Documentation_template.md with {{FINAL:...}} placeholders (14) to fill after the final run. Note E008 was trained on E007 chunks (reproduce rebuilds E007 unless E008_FAITHFUL=0); final weights ~2 GB (~8 GB with checkpoints).
-**Target (user, 26 Sep 23:50): LB 0.9908 = rank 1.** Levers: unseen-country threshold sweep via LB (Day-1 probe +0.0022), density (E025), global threshold picked on TEST-LIKE-density dev (test overconfidence), reranker. Tool: scripts/decision_variants.py writes threshold variants from one run's saved test probs (identical candidate_pairs). Slots 27 Sep: 1 E023a base, 2-3 unseen-threshold sweep (e.g. 0.85/0.90), 4 best global-threshold variant, 5 final.
-**sub-11 (E017, no self-training) LB 0.985144 -> self-training was worth +0.0005 on LB.** Build BOTH E023a (no ST) and E023a-ST (ce-dir runs/E015-ce runs/E020-ce instead of E016-ce; same flags). Ship E023a-ST only if the organisers confirm self-training is allowed (Google Form query), else E023a.
-**Tomorrow (27 Sep):** move monitor/ into src/ after chains end; offline flag; seed averaging; E023 build with --out
--> validators -> sub-11 (~10:00); final refit incl. dev S1s; README/REPRODUCE (full dependency chain incl. E016
-pseudo-label source); Documentation_template.md (2-page core + appendices; need team names); zip via
-scripts/make_submission_zip.py (dry-run passed); final upload <= 22:00; final zip from the same commit/files.
-Rules/compliance: docs/COMPETITION.md (organiser update on candidate size included). Docstrings done (107).
+**Morning steps (in order):** (1) check chain logs + validators; record E023a dev (test-like density) + cands/S1.
+(2) G0: dev of runs/E022-llmce-full vs core; if full >= core, rebuild E023a with it (~75 min, new --frames dir).
+(3) Slot 1 = E023a (ST or not per organisers), tag sub-12, safety zip from the tag (scripts/make_submission_zip.py
+--ref sub-12 --team SHSHSHSH --outputs <dir> --doc docs/Documentation_template.md --test-dir data/dataset/test).
+(4) Slots 2-3: unseen-country threshold sweep via scripts/decision_variants.py (same probs => identical candidates),
+e.g. --t-unseen 0.85 / 0.90; slot 4: global threshold picked on test-like-density dev; slot 5 final <= 22:00.
+(5) After all chains end: move monitor/ into src/ (update imports + chains), pin/offline notes; fill 14 {{FINAL:..}}
+placeholders in docs/Documentation_template.md + docs/REPRODUCE.md (drafts committed; scripts/reproduce.sh drafted);
+FAISS scalability note; zip from final tag; sha256 of TSVs = uploaded file. Team: Shaunak A. Rai, Shaswat Solanki,
+Shivam Anand, Shreyas Sreenivas.
+Regression check 26 Sep: today's code reproduces E020 dev exactly (new flags are opt-in).
 
 ## 2026-09-25 (Day 1) — end of day
 - **Leaderboard:** sub-06 **0.975154** (leader 0.986955). sub-03 0.947598; France probes: France-emptied 0.821,
