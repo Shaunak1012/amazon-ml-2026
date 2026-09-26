@@ -17,3 +17,4 @@ Gate before each submission (see CLAUDE.md → Submission discipline):
 | 6 | 2026-09-25 18:17 IST | E010-stage2-ce | `sub-06` | 0.9840 dev / 0.9838 OOF | **0.975154** (leader 0.986955; rank 53) | 0 | sub_E010_ce |
 | 7 | 2026-09-25 22:10 IST | E013-rarity | `sub-07` | 0.9844 dev / 0.9843 OOF | **0.975726** (+0.000572 vs sub-06) | 4 (26 Sep) | sub_E013_rarity |
 | 8 | 2026-09-26 06:11 IST | E015-ftview | `sub-08` | 0.9898 dev / 0.9896 OOF | **0.983322** (+0.007596 vs sub-07; leader 0.990556; dev->LB gap 0.0065, was 0.0087) | 3 (26 Sep; assumes sub-07 counted on 26 Sep) | sub_E015 |
+| 9 | 2026-09-26 ~14:15 IST | E016-ce-base | `sub-09` (on aca60ee) | 0.9905 dev / 0.9901 OOF | **0.984727** (+0.001405 vs sub-08; rank 67, leader 0.990556) | 0 for us on 26 Sep (team shares slots; 1/day ours) | sub_E016 |
