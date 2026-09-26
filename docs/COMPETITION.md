@@ -93,8 +93,9 @@ The top teams' packages are **reviewed in detail** (reproducibility, blocking au
 before final rankings are confirmed. Code needs proper comments describing the functions.
 
 ## Rules
-- **Models:** the final model must be **MIT or Apache-2.0 licensed** and **≤ 8B parameters**. Team cap (26 Sep): **≤ 7B**
-  (so Qwen2.5-7B at 7.6B is out; Qwen2.5-3B is excluded for its research licence; Llama/Gemma licences are not MIT/Apache).
+- **Models:** the final model must be **MIT or Apache-2.0 licensed** and **≤ 8B parameters**. Read literally as total
+  parameters: Qwen2.5-7B (7.6B) is fine; **Qwen3-8B (8.2B) is avoided**; Qwen2.5-3B is excluded (research licence);
+  Llama/Gemma licences are not MIT/Apache.
 - **🚫 No external data lookup.** No entity-resolution APIs, no government/business registries, **no geocoding
   APIs**, no internet data augmentation. Evidence of this means **immediate disqualification**. Use only the
   provided training data. (Pretrained open models within the licence and size limits are fine. Hand-written
@@ -120,7 +121,8 @@ before final rankings are confirmed. Code needs proper comments describing the f
 | intfloat/multilingual-e5-small | embedding model, offline | MIT | 118M | allowed; fine-tuning (if any) only on provided train data |
 | microsoft/mdeberta-v3-base (planned) | cross-encoder backbone, offline | MIT | 278M | allowed |
 | intfloat/multilingual-e5-base (E016 cross-encoder) | cross-encoder backbone, offline | MIT | 278M | allowed; fine-tuned only on provided data |
-| **Qwen/Qwen3-4B** (planned LLM reranker, LoRA) | decoder LLM as a pair classifier, offline | Apache-2.0 (model card, checked 26 Sep) | 4.0B | allowed (<= 7B team cap, <= 8B rule); fine-tuned only on provided data |
+| **Qwen/Qwen3-4B** (planned LLM reranker, LoRA) | decoder LLM as a pair classifier, offline | Apache-2.0 (model card, checked 26 Sep) | 4.0B | allowed (<= 8B); fine-tuned only on provided data |
+| Qwen/Qwen2.5-7B-Instruct (optional larger reranker) | decoder LLM, offline | Apache-2.0 | 7.6B | allowed (<= 8B) |
 | Qwen/Qwen2.5-1.5B-Instruct (fallback reranker) | decoder LLM, offline | Apache-2.0 (model card, checked 26 Sep) | 1.54B | allowed |
 | LightGBM | pure-algorithm library | MIT | n/a | allowed |
 | rapidfuzz, jellyfish, scikit-learn, pandas, numpy, pyarrow | pure-algorithm libraries | MIT/BSD | n/a | allowed |
