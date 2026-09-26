@@ -15,7 +15,7 @@ public static class GameMode {
 }
 '@ -ErrorAction SilentlyContinue
 
-$pattern = 'src\.er_(fullpass|crossenc|embed|biencoder|pipeline|charvec)'
+$pattern = 'src\.er_[a-z0-9_]+'
 $suspended = @{}
 function FreeGB { [math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB, 1) }
 function Jobs { Get-CimInstance Win32_Process -Filter "name='python.exe'" | Where-Object { $_.CommandLine -match $pattern } |

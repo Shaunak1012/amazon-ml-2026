@@ -13,7 +13,7 @@ public static class JobCtl {
 }
 '@ -ErrorAction SilentlyContinue
 
-$pattern = 'src\.er_(fullpass|crossenc|embed|biencoder|pipeline|charvec)|scripts/recall_gain'
+$pattern = 'src\.er_[a-z0-9_]+|scripts/recall_gain'
 $jobs = Get-CimInstance Win32_Process -Filter "name='python.exe'" | Where-Object { $_.CommandLine -match $pattern -and $_.CommandLine -notmatch 'monitor\.launch' }
 if (-not $jobs) { "no pipeline jobs running"; exit 0 }
 foreach ($j in $jobs) {

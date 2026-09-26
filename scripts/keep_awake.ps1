@@ -10,7 +10,7 @@ public static class Awake { [DllImport("kernel32.dll")] public static extern uin
 '@ -ErrorAction SilentlyContinue
 $ES_CONTINUOUS = [uint32]"0x80000000"; $ES_SYSTEM_REQUIRED = [uint32]"0x00000001"
 
-$pattern = 'src\.er_(fullpass|crossenc|embed|biencoder|pipeline|charvec)'
+$pattern = 'src\.er_[a-z0-9_]+'
 $lastSeen = Get-Date
 [void][Awake]::SetThreadExecutionState($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED)
 "$(Get-Date -Format HH:mm:ss) keep-awake on"
