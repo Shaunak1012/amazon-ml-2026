@@ -2,6 +2,7 @@
 
     python scripts/gpu/links.py bootstrap                   # -> prints ONE link; user runs: curl -s "<link>" | bash
     python scripts/gpu/links.py job scripts/gpu/jobs/x.sh   # {{GET:<s3 key>}} -> 7-day presigned GET; -> queue
+                                                            # {{GETDIR:<s3 prefix>:<local dir>}} -> one dl line per object
 Rendered files (they contain live links) go only to S3, never into the repo.
 """
 import base64
@@ -36,6 +37,16 @@ def main() -> None:
         print(get("shreyas/private/gpu_bootstrap.sh"))
     elif cmd == "job":
         t = Path(sys.argv[2]).read_text()
+
+        def getdir(m: re.Match) -> str:
+            prefix, local = m.group(1).strip(), m.group(2).strip()
+            keys = [o["Key"] for page in s3.get_paginator("list_objects_v2").paginate(Bucket=B, Prefix=prefix)
+                    for o in page.get("Contents", []) if not o["Key"].endswith((".done", "STAGED"))]
+            if not keys:
+                raise SystemExit(f"nothing under {prefix}")
+            return chr(10).join(f'dl "{get(k)}" {local}/{k.rsplit("/", 1)[1]}' for k in keys)
+
+        t = re.sub(r"\{\{GETDIR:([^:}]+):([^}]+)\}\}", getdir, t)
         t = re.sub(r"\{\{GET:([^}]+)\}\}", lambda m: get(m.group(1).strip()), t)
         s3.put_object(Bucket=B, Key="shreyas-gpu/queue/current.sh", Body=t.encode())
         print(f"queued {sys.argv[2]} ({len(t)} bytes)")
