@@ -271,7 +271,7 @@ def cached_frame(a: argparse.Namespace, name: str, build) -> pd.DataFrame:
     fd = Path(a.frames)
     fd.mkdir(parents=True, exist_ok=True)
     key = {"exp": a.exp, "ce_dir": list(a.ce_dir), "comp_cols": list(a.comp_cols), "views": list(a.views),
-           "fit_folds": list(a.fit_folds), "train_s1": a.train_s1, **({"norm2": True} if a.norm2 else {})}
+           "fit_folds": list(a.fit_folds), "train_s1": a.train_s1, **({"norm2": True} if getattr(a, "norm2", False) else {})}
     meta, path = fd / "frames.json", fd / f"{name}_frame.parquet"
     if meta.exists() and json.loads(meta.read_text(encoding="utf-8")) != key:
         raise ValueError(f"{fd} was built for {meta.read_text()}, not {key}; use another --frames dir")
