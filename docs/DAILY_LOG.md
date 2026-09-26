@@ -22,6 +22,8 @@ dev 0.99116, +0.00019) + E024 --norm2 + E025 --comp-keep 0.78 (+0.00064 at test-
 runs/E022x-chain.log (reranker on wider band, data runs/E021-llm/data_ext -> merged feature runs/E022-llmce-full, ~07:00).
 Batch 32 (batch 64 spilled GPU memory). Keep-awake on; don't close the app.
 
+**Team (for the doc):** Shaunak A. Rai, Shaswat Solanki, Shivam Anand, Shreyas Sreenivas. **Slots 27 Sep: 5.** Portal takes matching_results.tsv only (an early candidate/zip upload errored); final zip upload expected on the last day.
+**Reviews 26 Sep night:** packaging (README stale; unrecorded steps E014/E015/E021 data10/data_ext; hand-copied pseudo-label parquet; need scripts/reproduce.sh; pin HF revisions; exclude .ps1), compliance (self-training on test = DQ risk vs 'provided training data' -> recommend drop; stage-2 context features read the 15 not the 4.71 -> prune chunks before features; FAISS scalability benchmark; fix 'learned abbreviation maps' wording).
 **Tomorrow (27 Sep):** move monitor/ into src/ after chains end; offline flag; seed averaging; E023 build with --out
 -> validators -> sub-11 (~10:00); final refit incl. dev S1s; README/REPRODUCE (full dependency chain incl. E016
 pseudo-label source); Documentation_template.md (2-page core + appendices; need team names); zip via
