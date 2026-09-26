@@ -55,10 +55,15 @@ def truth(s1_ids) -> dict[str, set[str]]:
     return y
 
 
-def cand_mask(df: pd.DataFrame, topk: int, min_prob: float) -> np.ndarray:
-    """Rows kept in the candidate set: the S1's top-`topk` by stage-1 prob, and prob >= min_prob."""
+def cand_mask(df: pd.DataFrame, topk: int, min_prob: float, ce: np.ndarray | None = None,
+              ce_min: float = 1.1) -> np.ndarray:
+    """Rows kept in the candidate set: the S1's top-`topk` by stage-1 prob, and prob >= min_prob OR (with `ce`, a
+    cross-encoder score per row) ce >= ce_min."""
     rank = df.groupby("s1_id", sort=False).prob.rank(ascending=False, method="first").to_numpy()
-    return (rank <= topk) & (df.prob.to_numpy() >= min_prob)
+    ok = df.prob.to_numpy() >= min_prob
+    if ce is not None:
+        ok |= np.nan_to_num(ce, nan=0.0) >= ce_min
+    return (rank <= topk) & ok
 
 
 def repopulate(X: pd.DataFrame, allp: pd.DataFrame, nm: SimpleNamespace, drop: set,
@@ -96,6 +101,8 @@ def main() -> None:
                     help="eval mode only: also remove the dropped S1s' fit rows (same fit size as 'both', no recompute)")
     ap.add_argument("--cand-topk", type=int, default=15, help="keep the S1's top-k stage-1 candidates (frames hold 15)")
     ap.add_argument("--cand-min-prob", type=float, default=0.0, help="and only candidates with stage-1 prob >= this")
+    ap.add_argument("--cand-ce-col", default="", help="OR-rule: also keep rows whose CE column (e.g. ce_score_2) >= --cand-ce-min")
+    ap.add_argument("--cand-ce-min", type=float, default=1.1)
     ap.add_argument("--lr", type=float, default=0.1)
     ap.add_argument("--rounds", type=int, default=1000)
     ap.add_argument("--lgb-params", default="")
@@ -114,10 +121,16 @@ def main() -> None:
     if pruned:
         # candidate-set pruning by stage-1 prob: the pruned list is what stage 2 (the final model) runs on, i.e. the
         # candidate_pairs.tsv; competition features are recomputed over the pruned population
-        X = X[cand_mask(X, a.cand_topk, a.cand_min_prob)].reset_index(drop=True)
+        ce_x = X[a.cand_ce_col].to_numpy() if a.cand_ce_col else None
+        X = X[cand_mask(X, a.cand_topk, a.cand_min_prob, ce_x, a.cand_ce_min)].reset_index(drop=True)
         X["s2_sum_prob_s1"] = X.groupby("s1_id").prob.transform("sum").astype(np.float32)
         allp = pd.read_parquet(a.train_min, columns=["s1_id", "cand_id", "prob", *a.comp_cols])
-        allp = allp[cand_mask(allp, a.cand_topk, a.cand_min_prob)].reset_index(drop=True)
+        ce_p = None
+        if a.cand_ce_col:
+            # CE scores exist for fold-0 rows only (the rows in the frame); other S1s' rows fall back to the prob rule
+            m = X[["s1_id", "cand_id", a.cand_ce_col]]
+            ce_p = allp[["s1_id", "cand_id"]].merge(m, on=["s1_id", "cand_id"], how="left")[a.cand_ce_col].to_numpy()
+        allp = allp[cand_mask(allp, a.cand_topk, a.cand_min_prob, ce_p, a.cand_ce_min)].reset_index(drop=True)
     drop: set = set()
     dev_drop: set = set()
     if a.drop_s1_frac > 0:
