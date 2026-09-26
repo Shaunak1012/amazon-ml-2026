@@ -83,6 +83,8 @@ def main() -> None:
     ap.add_argument("--drop-s1-frac", type=float, default=0.0)
     ap.add_argument("--drop-in", choices=["both", "eval"], default="both")
     ap.add_argument("--drop-seed", type=int, default=11)
+    ap.add_argument("--fit-without-dropped", action="store_true",
+                    help="eval mode only: also remove the dropped S1s' fit rows (same fit size as 'both', no recompute)")
     ap.add_argument("--lr", type=float, default=0.1)
     ap.add_argument("--rounds", type=int, default=1000)
     ap.add_argument("--lgb-params", default="")
@@ -101,7 +103,8 @@ def main() -> None:
         drop = set(np.random.default_rng(a.drop_seed).choice(ids, int(round(a.drop_s1_frac * len(ids))), replace=False))
     drop_fit = drop if a.drop_in == "both" else set()
     is_dev = folds.dev.reindex(X.s1_id).to_numpy(bool)
-    Xtr = X[~is_dev & ~X.s1_id.isin(drop_fit).to_numpy()].reset_index(drop=True)
+    fit_excl = drop if (a.fit_without_dropped or a.drop_in == "both") else set()
+    Xtr = X[~is_dev & ~X.s1_id.isin(fit_excl).to_numpy()].reset_index(drop=True)
     Xdev = X[is_dev & ~X.s1_id.isin(drop).to_numpy()].reset_index(drop=True)
     del X
     if drop:
