@@ -3,6 +3,18 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-26 18:40 IST: sync - Shaunak's E025 = SH01 in the main pipeline
+**shaunak @ adafc7d:** sub-10 (E020, self-trained CEs) **LB 0.985645** (new best). E024 `--norm2` (street types
+expanded, dotted legal forms). **E025 `--comp-keep 0.78`**: thins never-fitted train S1s so competition features see
+test density (his count: 2.67 vs 3.27 S1s per record, i.e. keep ~0.82; ours from pool sizes: keep 0.81 = two
+independent routes, same number). His version keeps all fit/dev S1s (better than SH01, which lost 19% of fit S1s).
+- SH01 as a submission is superseded by E025 (same idea + norm2 + E020 CE). Kept as fallback job only.
+- Notes for E025: (1) its dev frame is also thinned, so its dev F0.5 is NOT comparable to E024's (density alone
+  moves dev ~-0.001); compare against the current recipe scored in the same thinned dev (SH01 `eval` arm), where we
+  measured +0.0002..0.0004. (2) Averaging 3-4 thinning seeds added ~+0.0001. (3) Name-rarity counts should also use
+  the thinned S1 population (er_frames2.repopulate does).
+- Next on this branch (no overlap): stage-2 GBDT bake-off (CatBoost / XGBoost / LightGBM seeds) on the cached frames.
+
 ## 2026-09-26 18:20 IST: SH01 robust + ensemble
 Paired gain (SH01 both minus current recipe, same dev S1s) on 3 independent test-like dev subsets:
 seed 11: expected-F +0.00029, thr .75 +0.00020 · seed 12: +0.00045 / +0.00030 · seed 13: +0.00033 / +0.00018.
