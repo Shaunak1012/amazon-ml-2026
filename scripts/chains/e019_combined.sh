@@ -8,6 +8,7 @@ PY=.venv/Scripts/python.exe
 ok() { grep -q '"returncode": 0' "runs/$1/exit.json" 2>/dev/null; }
 until [ -f runs/E017-stage2/exit.json ]; do sleep 30; done
 ok E017-stage2 || { echo "CHAIN STOP: E017 failed"; exit 1; }
+until [ -f runs/E015/sub_E017/stage2.json ] && [ -f runs/E015/sub_E017/test_probs_stage2.parquet ]; do sleep 10; done   # E017 chain copies its outputs aside
 E17=$($PY -c "import json; print(json.load(open('runs/E015/sub_E017/stage2.json'))['dev_f05'])")
 COMP=""
 $PY -c "import sys; sys.exit(0 if $E17 > 0.99052 + 0.0002 else 1)" && COMP="--comp-cols cos_name name_ratio name_jw name_full_tset name_tsort"
