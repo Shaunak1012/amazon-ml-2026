@@ -75,3 +75,26 @@ def test_competition_features_on_other_column():
     assert set(f) == {"comp_cos_name_other_best", "comp_cos_name_margin"}
     assert f["comp_cos_name_margin"].tolist() == pytest.approx([0.09, -0.09, 0.5])
     assert set(competition_features(P)) == {"s2_other_s1_best", "s2_margin_vs_other_s1"}   # prob keeps old names
+
+
+def test_cached_frame_builds_once_and_rejects_other_settings(tmp_path):
+    from types import SimpleNamespace
+
+    from src.er_fullpass import cached_frame
+
+    a = SimpleNamespace(frames=str(tmp_path / "f"), exp="E1", ce_dir=["c"], comp_cols=[], views=["both"],
+                        fit_folds=[0], train_s1=10)
+    calls = []
+
+    def build():
+        calls.append(1)
+        return pd.DataFrame({"s1_id": ["S1-1"], "x": [0.5]})
+
+    first = cached_frame(a, "train", build)
+    second = cached_frame(a, "train", build)
+    assert len(calls) == 1 and second.equals(first)
+    a.comp_cols = ["name_ratio"]
+    with pytest.raises(ValueError):
+        cached_frame(a, "train", build)
+    a.frames = ""
+    assert cached_frame(a, "train", build).equals(first) and len(calls) == 2    # no cache dir: always build
