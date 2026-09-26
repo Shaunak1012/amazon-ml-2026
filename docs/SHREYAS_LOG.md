@@ -3,6 +3,13 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-26 17:10 IST: SH02 decision layer = no gain (dropped)
+Exact expected-F0.5 (Poisson-binomial, `src/er_decide2.py`) vs the current 256-sample Monte-Carlo, on Shaunak's E019 dev
+predictions (100k S1): MC256 **0.99081**, exact **0.99082**, exact + 2-fold isotonic **0.99079**. All within noise:
+stage-2 probabilities are already calibrated and 256 samples suffice. The decision layer is not where the loss is;
+the remaining levers are upstream (stage-2 training regime, SH01). Global assignment decoding stays parked: dev files
+hold only dev S1s, so conflicts with other S1s cannot be measured.
+
 ## 2026-09-26 14:45 IST: SH01 distractor simulation (new lever) + sync
 **Teammate sync (shaunak @ ea738d6):** E016 (both CEs) dev 0.9905 → **LB 0.984727 (sub-09)**, rank 67; leader still
 0.990556. Dev→LB gap is still ~0.006. Shaunak now runs **E018 = French CE self-training on test pseudo-labels** and
