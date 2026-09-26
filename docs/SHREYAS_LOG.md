@@ -3,6 +3,25 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-26 20:05 IST: CS04 strict OR-rule candidate sets -> recommendation
+Shaunak's pruning (a6df68d) filters stage-2 rows AFTER building features on the full top-15, so competition/sibling
+features and the OR-rule CE use pairs that are not in candidate_pairs.tsv (reviewers read the code: risk that the
+"real" candidate set is judged to be 15). CS04 measures the OR rule in strict form (every stage-2 population feature
+recomputed on the pruned set; CE = E016 scores, ce_score_2 in the E019 frame):
+
+| rule (strict) | cand/S1 | recall | dev F0.5 | vs top-15 |
+|---|---|---|---|---|
+| p >= 0.01 OR CE >= 0.01 | 5.69 | 0.9968 | 0.99092 | -0.00005 |
+| p >= 0.02 OR CE >= 0.01 (Shaunak's) | 5.28 | 0.9966 | 0.99088 | -0.00009 |
+| **p >= 0.02 OR CE >= 0.02** | **5.08** | **0.9961** | **0.99089** | **-0.00008** |
+| p >= 0.05 OR CE >= 0.01 | 4.95 | 0.9964 | 0.99078 | -0.00019 |
+
+- The CE OR-rule dominates stage-1-only floors (same size, recall 0.996 vs 0.994, a third of the loss).
+- Strict costs ~nothing vs his non-strict "unchanged" (within noise), so use strict: no reviewer ambiguity.
+- **Recommendation: p >= 0.02 OR CE >= 0.02, features on the pruned set: 5.08 cand/S1 (3x smaller) at -0.00008.**
+  France pending CS03 (needs the E020 test frame). Caveat: train-side competitors outside fold 0 have no CE score and
+  fall back to the prob rule.
+
 ## 2026-09-26 19:40 IST: CS02 low floors
 | floor | cand/S1 | recall | dev F0.5 | vs top-15 |
 |---|---|---|---|---|
