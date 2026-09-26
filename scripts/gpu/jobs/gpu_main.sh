@@ -40,7 +40,9 @@ echo "OW03 DONE $(date)"
 {{GETDIR:shreyas-gpu/data/CE03/pairs_train/:runs/CE03/pairs_train}}
 {{GETDIR:shreyas-gpu/data/CE03/pairs_test/:runs/CE03/pairs_test}}
 wait_gpu
-$PY -m src.er_crossenc train --chunks runs/E015/train_chunks --out runs/CE03/model --n __CE_N__ --exclude-folds 0 \
+N=$(curl -sf "{{GET:shreyas-gpu/queue/ce03_n.txt}}" | tr -dc 0-9); N=${N:-1200000}   # tunable remotely
+echo "CE03 training pairs: $N"
+$PY -m src.er_crossenc train --chunks runs/E015/train_chunks --out runs/CE03/model --n $N --exclude-folds 0 \
     --model-name intfloat/multilingual-e5-large --batch 64 --lr 1.5e-5 --ckpt-every 2000
 $PY -m src.er_crossenc score --model runs/CE03/model --chunks runs/CE03/pairs_train --split train --out runs/CE03/train_ce --batch 512
 for f in runs/CE03/train_ce/*.parquet; do up "$f" "artifacts/CE03/train_ce/$(basename "$f")"; done
