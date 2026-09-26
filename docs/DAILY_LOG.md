@@ -17,13 +17,13 @@ mid-way should catch up in 2 minutes. Also keep the GPU queue current.
 optional; both TSVs from ONE stage-2 run; zip from one commit/tag; no stage-2 launch after 19:30.
 
 **Running overnight (chains in runs/*-chain.log, launched from the OLD chat; keep it open):**
-1. E022b (E022 test scoring done 23:20) -> E022-dev (CPU, ~00:00; dev check only).
-2. E022x (GPU): reranker on the wider band (data runs/E021-llm/data_ext) -> runs/E022-llmce-full (~06:30).
-3. E023a-core (CPU, after E022-dev, ~01:30): stage2 --ce-dir runs/E015-ce runs/E016-ce runs/E022-llmce --norm2
+1. E022b: DONE 23:40 (E022 dev F0.5 0.99116 with full test mapping; confirms the early check).
+2. E022x (GPU): reranker on the wider band (data runs/E021-llm/data_ext) -> runs/E022-llmce-full (ETA ~06:30; started ~23:25).
+3. E023a-core (CPU, launched 23:41, ETA ~01:00): stage2 --ce-dir runs/E015-ce runs/E016-ce runs/E022-llmce --norm2
    --comp-keep 0.78 --comp-cols cos_name name_ratio name_jw name_full_tset name_tsort --prune-eps 0.2 --prune-ce-dir
    runs/E016-ce --prune-ce 0.01 --unseen-threshold 0.85 -> submissions/sub_E023a_core (+ _unseen), validators in
    runs/E015/sub_E023a_core/validate_*.txt, probs/stage2.json copied there.
-4. E023a-ST (CPU, after 3, ~03:00): same with runs/E020-ce (self-trained) -> submissions/sub_E023a_st; candidate file
+4. E023a-ST (CPU, after 3, ETA ~02:30): same with runs/E020-ce (self-trained) -> submissions/sub_E023a_st; candidate file
    must be byte-identical to E023a-core (chain prints it).
 Watchdogs: GPU-spill + health (background), Discord via monitor.notify. Keep-awake on.
 
