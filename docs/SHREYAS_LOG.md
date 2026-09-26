@@ -3,6 +3,15 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-27 01:00 IST: OW03 (GPU owner model, e5-base) = +0.00026 dev -> 0.99122; clean filter sweep
+- Team decision (26 Sep 22:40): drop self-training; filter before features. E020's ce_score_2 is self-trained on test,
+  so the clean candidate rule uses stage-1 p OR the E008 e5-small CE (ce_score): p>=0.02|ce>=0.02 -> 6.25 cand/S1,
+  dev 0.99096 (= top-15 0.99097); p>=0.05|ce>=0.05 -> 5.43, 0.99082; p>=0.1|ce>=0.1 -> 4.70 dev / 4.89 test.
+- OW03 (GB10, e5-base, 2 epochs, 137k groups; trained in 17 min): clean-filter dev 0.99122 vs 0.99096 (+0.00026,
+  US +0.00030, India +0.00020); top-15 0.99122 vs 0.99097. First real gain from the owner signal (OW01 e5-small ~0).
+- GPU box: lab GB10 (97.5 TFLOPS bf16), runner in tmux (the box kills SSH-session processes on logout).
+- Next: 3-seed stage-2 average; CE03 (e5-large CE) training/scoring; CE03-based filter toward 4.7/S1.
+
 ## 2026-09-27 00:05 IST: OW01 owner model (CPU, e5-small, 48k easy groups) = no gain; GPU plan
 - OW01 paired dev: top-15 0.99094 vs 0.99097 (-0.00003); strict pruned 0.99100 vs 0.99089 (+0.00010). Within noise.
   First attempt crashed (extra-feature glob matched train_groups.parquet); fixed (explicit <split>_owner.parquet).
