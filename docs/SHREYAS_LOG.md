@@ -3,6 +3,24 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-26 17:40 IST: SH01 result = density shift confirmed, test-like training gives a small real gain
+Frames: Shaunak's E019 train frame (fit = 300k fold-0 S1, dev = 100k). Test-like dev = dev minus a random 19% of all
+train S1s (their records become distractors), competition + rarity features recomputed. Same 80,956 dev S1 for every arm.
+
+| arm | expected-F | thr .65 | thr .70 | thr .75 | thr .80 |
+|---|---|---|---|---|---|
+| current recipe on NORMAL dev (E019) | 0.99081 | | | | |
+| eval: current recipe | 0.98957 | 0.98924 | 0.98945 | 0.98972 | 0.98981 |
+| evalsub: current recipe, fit on same 243k S1 as both | 0.98949 | 0.98920 | 0.98941 | 0.98962 | 0.98974 |
+| **both: stage 2 fit in the test-like population** | **0.98986** | **0.98968** | **0.98987** | **0.98992** | **0.98991** |
+
+- Density alone costs the current model **-0.0011** (0.99081 -> 0.98972): a real part of the US/India dev->LB gap.
+- Test-like training wins under every rule, in both countries (US +0.0001, India +0.0002 at the chosen rules) and
+  against the fit-size-matched control: **+0.0002 to +0.0004**. It mostly acts as a learned stricter operating point
+  (current model's best threshold drifts 0.75 -> 0.80 under density), learned from train data rather than guessed.
+- Decision: keep for the final candidate (same features/pipeline, low risk). Running: drop-seed ensemble (fixed dev)
+  and 30% drop. Remaining density loss needs new features, not retraining.
+
 ## 2026-09-26 17:10 IST: SH02 decision layer = no gain (dropped)
 Exact expected-F0.5 (Poisson-binomial, `src/er_decide2.py`) vs the current 256-sample Monte-Carlo, on Shaunak's E019 dev
 predictions (100k S1): MC256 **0.99081**, exact **0.99082**, exact + 2-fold isotonic **0.99079**. All within noise:
