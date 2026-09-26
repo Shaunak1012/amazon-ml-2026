@@ -180,10 +180,18 @@ def name_rarity(split_obj: Split) -> tuple[pd.DataFrame, pd.DataFrame]:
     return left, right
 
 
-def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | None) -> pd.DataFrame:
-    """Stage-2 design matrix: sibling feats per chunk (chunks partition S1) + competition feats over ALL chunks."""
-    allp = pd.concat([c[["s1_id", "cand_id", "prob"]] for c in chunks], ignore_index=True)
+def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | None,
+                  comp_cols: tuple[str, ...] = ()) -> pd.DataFrame:
+    """Stage-2 design matrix: sibling feats per chunk (chunks partition S1) + competition feats over ALL chunks.
+
+    comp_cols: extra stage-1 columns (e.g. name_full_tset) whose record-level "best other S1" competition features
+    are added, computed over the full population like the prob ones."""
+    allp = pd.concat([c[["s1_id", "cand_id", "prob", *comp_cols]] for c in chunks], ignore_index=True)
     comp = competition_features(allp)
+    for col in comp_cols:
+        comp.update(competition_features(allp, col))
+    comp_keys = list(comp)
+    del allp
     parts, off = [], 0
     emb = {v: split_obj.embp[v] for v in split_obj.views}
     rl, rr = name_rarity(split_obj)
@@ -193,7 +201,7 @@ def stage2_frames(split_obj: Split, chunks: list[pd.DataFrame], keep_s1: set | N
         if sel.any():
             cs = c[sel].reset_index(drop=True)
             F = cluster_features(cs[["s1_id", "cand_id", "prob"]], split_obj.right, emb)
-            for k in COMP:
+            for k in comp_keys:
                 F[k] = comp[k][off:off + n][sel]
             F = pd.concat([F, rl.reindex(cs.s1_id).reset_index(drop=True),
                            rr.reindex(cs.cand_id).reset_index(drop=True)], axis=1)
@@ -234,7 +242,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     pool = folds.index[folds.fold.isin(a.fit_folds) & ~folds.dev].to_numpy()   # dev never fits (fold 0 holds dev)
     fit_ids = set(rng.choice(pool, size=min(a.train_s1, len(pool)), replace=False))
     dev_ids = set(folds.index[folds.dev])
-    X = stage2_frames(d, with_ce(load_chunks(rd, "train"), a.ce_dir, "train"), fit_ids | dev_ids)
+    X = stage2_frames(d, with_ce(load_chunks(rd, "train"), a.ce_dir, "train"), fit_ids | dev_ids, tuple(a.comp_cols))
     log(f"stage-2 frame {X.shape} [{time.time() - t0:.0f}s]")
     is_dev = X.s1_id.isin(dev_ids).to_numpy()
     Xtr, Xdev = X[~is_dev].reset_index(drop=True), X[is_dev].reset_index(drop=True)
@@ -293,7 +301,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     if not a.out:
         return
     te = Split("test", a.model, a.views)
-    Xt = stage2_frames(te, with_ce(load_chunks(rd, "test"), a.ce_dir, "test"), None)
+    Xt = stage2_frames(te, with_ce(load_chunks(rd, "test"), a.ce_dir, "test"), None, tuple(a.comp_cols))
     ft = Xt.drop(columns=["prob"])
     ft["s1_prob"] = Xt.prob.to_numpy()
     probs = Xt[["s1_id", "cand_id"]].assign(prob=predict(models, ft).astype(np.float32))
@@ -340,6 +348,8 @@ def main() -> None:
     s2.add_argument("--ce-dir", nargs="*", default=[], help="run dir(s) with train_ce/ and test_ce/ score parquets")
     s2.add_argument("--out", default="")
     s2.add_argument("--tag", default="", help="suffix for saved dev predictions (dev_stage2_<tag>.parquet)")
+    s2.add_argument("--comp-cols", nargs="*", default=[],
+                    help="stage-1 columns for extra full-population competition features, e.g. name_full_tset")
     s2.add_argument("--stage3", action="store_true",
                     help="refit once with anchors re-picked from stage-2 probs; the test run then uses stage 3")
     a = ap.parse_args()

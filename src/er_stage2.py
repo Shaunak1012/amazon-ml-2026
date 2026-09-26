@@ -20,17 +20,24 @@ def _pairwise(a, b, scorer) -> np.ndarray:
     return (process.cpdist(a, b, scorer=scorer, workers=-1) / 100.0).astype(np.float32)
 
 
-def competition_features(P: pd.DataFrame) -> dict[str, np.ndarray]:
-    """For each pair: the best probability its candidate record has with any OTHER S1, and the margin over it.
-    Needs every S1 that retrieved the record, so compute it over all pairs, not per chunk of S1s."""
-    prob = P.prob.to_numpy(np.float32)
-    gc = P.groupby("cand_id", sort=False).prob
+def competition_features(P: pd.DataFrame, col: str = "prob") -> dict[str, np.ndarray]:
+    """For each pair: the best `col` value its candidate record has with any OTHER S1, and the margin over it.
+    Needs every S1 that retrieved the record, so compute it over all pairs, not per chunk of S1s.
+
+    col="prob" keeps the original names (s2_other_s1_best, s2_margin_vs_other_s1); other columns (e.g. a name
+    similarity) give comp_<col>_other_best / comp_<col>_margin. Error analysis (E015 dev): 85% of the loss is true
+    empty-address matches rejected because near-identical empty-address records of OTHER S1s compete; whether this
+    S1 is the record's best NAME match among all S1s is the missing signal (prob is low for all of them)."""
+    v = P[col].to_numpy(np.float32)
+    gc = P.groupby("cand_id", sort=False)[col]
     top1 = gc.transform("max").to_numpy(np.float32)
     r = gc.rank(ascending=False, method="first").to_numpy()
-    second = P.loc[r == 2, ["cand_id", "prob"]].set_index("cand_id").prob
+    second = P.loc[r == 2, ["cand_id", col]].set_index("cand_id")[col]
     top2 = P.cand_id.map(second).fillna(0.0).to_numpy(np.float32)
     other_best = np.where(r == 1, top2, top1).astype(np.float32)
-    return {"s2_other_s1_best": other_best, "s2_margin_vs_other_s1": (prob - other_best).astype(np.float32)}
+    if col == "prob":
+        return {"s2_other_s1_best": other_best, "s2_margin_vs_other_s1": (v - other_best).astype(np.float32)}
+    return {f"comp_{col}_other_best": other_best, f"comp_{col}_margin": (v - other_best).astype(np.float32)}
 
 
 def cluster_features(P: pd.DataFrame, right: pd.DataFrame, emb_right: dict, n_anchors: int = 3,

@@ -63,3 +63,15 @@ def test_with_ce_attaches_one_column_per_dir(tmp_path):
     out = with_ce(chunks, [str(tmp_path / "a"), str(tmp_path / "b")], "train")
     assert out[0].ce_score.tolist() == pytest.approx([0.8, 0.2]) and out[0].ce_score_2.tolist() == pytest.approx([0.7, 0.3])
     assert with_ce(chunks, "", "train") is chunks and with_ce(chunks, [], "train") is chunks
+
+
+def test_competition_features_on_other_column():
+    """A record's best OTHER S1 by a similarity column: the S1 with the better name gets a positive margin."""
+    from src.er_stage2 import competition_features
+
+    P = pd.DataFrame({"s1_id": ["S1-1", "S1-2", "S1-1"], "cand_id": ["S2-a", "S2-a", "S3-b"],
+                      "prob": [0.1, 0.1, 0.9], "cos_name": [0.99, 0.90, 0.5]})
+    f = competition_features(P, "cos_name")
+    assert set(f) == {"comp_cos_name_other_best", "comp_cos_name_margin"}
+    assert f["comp_cos_name_margin"].tolist() == pytest.approx([0.09, -0.09, 0.5])
+    assert set(competition_features(P)) == {"s2_other_s1_best", "s2_margin_vs_other_s1"}   # prob keeps old names
