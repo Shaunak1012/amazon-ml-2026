@@ -3,7 +3,7 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
-## 2026-09-26 15:30 IST: SH01 distractor simulation (new lever) + sync
+## 2026-09-26 14:45 IST: SH01 distractor simulation (new lever) + sync
 **Teammate sync (shaunak @ ea738d6):** E016 (both CEs) dev 0.9905 → **LB 0.984727 (sub-09)**, rank 67; leader still
 0.990556. Dev→LB gap is still ~0.006. Shaunak now runs **E018 = French CE self-training on test pseudo-labels** and
 E019 = best features + E018 CE + cached frames (`--frames runs/frames/E019`). → This branch **drops its France
