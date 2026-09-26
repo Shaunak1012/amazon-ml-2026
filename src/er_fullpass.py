@@ -120,21 +120,26 @@ def load_chunks(rd: Path, name: str, columns=None) -> list[pd.DataFrame]:
     return [pd.read_parquet(p, columns=columns) for p in sorted((rd / f"{name}_chunks").glob("*.parquet"))]
 
 
-def with_ce(chunks: list[pd.DataFrame], ce_dir: str, split: str) -> list[pd.DataFrame]:
-    """Attach cross-encoder scores (src.er_crossenc score output: one parquet per chunk, same row order)."""
-    if not ce_dir:
-        return chunks
-    files = sorted((Path(ce_dir) / f"{split}_ce").glob("*.parquet"))
-    if len(files) != len(chunks):
-        raise ValueError(f"{len(files)} CE files for {len(chunks)} {split} chunks in {ce_dir}")
-    out = []
-    for c, f in zip(chunks, files):
-        ce = pd.read_parquet(f)
-        if len(ce) != len(c) or not (ce.s1_id.to_numpy() == c.s1_id.to_numpy()).all() \
-                or not (ce.cand_id.to_numpy() == c.cand_id.to_numpy()).all():
-            raise ValueError(f"CE rows misaligned with {f.name}")
-        out.append(c.assign(ce_score=ce.ce_score.to_numpy(np.float32)))
-    return out
+def with_ce(chunks: list[pd.DataFrame], ce_dirs, split: str) -> list[pd.DataFrame]:
+    """Attach cross-encoder scores (src.er_crossenc score output: one parquet per chunk, same row order).
+
+    Several CE dirs -> columns ce_score, ce_score_2, ... (one feature per cross-encoder)."""
+    if isinstance(ce_dirs, str):
+        ce_dirs = [ce_dirs] if ce_dirs else []
+    for i, ce_dir in enumerate(ce_dirs):
+        col = "ce_score" if i == 0 else f"ce_score_{i + 1}"
+        files = sorted((Path(ce_dir) / f"{split}_ce").glob("*.parquet"))
+        if len(files) != len(chunks):
+            raise ValueError(f"{len(files)} CE files for {len(chunks)} {split} chunks in {ce_dir}")
+        out = []
+        for c, f in zip(chunks, files):
+            ce = pd.read_parquet(f)
+            if len(ce) != len(c) or not (ce.s1_id.to_numpy() == c.s1_id.to_numpy()).all() \
+                    or not (ce.cand_id.to_numpy() == c.cand_id.to_numpy()).all():
+                raise ValueError(f"CE rows misaligned with {f.name} ({ce_dir})")
+            out.append(c.assign(**{col: ce.ce_score.to_numpy(np.float32)}))
+        chunks = out
+    return chunks
 
 
 def name_rarity(split_obj: Split) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -254,7 +259,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     p_tr = Xtr[["s1_id", "cand_id"]].assign(prob=oof)
     p_dev = Xdev[["s1_id", "cand_id"]].assign(prob=predict(models, fdev))
     # keep dev predictions + key features for error analysis (labels: y)
-    keep_cols = [c for c in ("y", "prob", "ce_score", "name_tset", "addr_tset", "cos_both", "num_first_eq", "post_eq",
+    keep_cols = [c for c in ("y", "prob", "ce_score", "ce_score_2", "name_tset", "addr_tset", "cos_both", "num_first_eq", "post_eq",
                              "s2_margin_vs_other_s1") if c in Xdev.columns]
     Xdev[["s1_id", "cand_id"] + keep_cols].rename(columns={"prob": "s1_prob"}).assign(prob=p_dev.prob.to_numpy()) \
         .to_parquet(rd / f"dev_stage2_{a.tag or 'last'}.parquet", index=False)
@@ -332,7 +337,7 @@ def main() -> None:
     s2 = sp.choices["stage2"]
     s2.add_argument("--train-s1", type=int, default=300_000)
     s2.add_argument("--fit-folds", type=int, nargs="+", default=[1, 2, 3, 4], help="folds whose S1s fit stage 2 (use 3 4 if the CE trained on folds 1-2)")
-    s2.add_argument("--ce-dir", default="", help="run dir with train_ce/ and test_ce/ score parquets")
+    s2.add_argument("--ce-dir", nargs="*", default=[], help="run dir(s) with train_ce/ and test_ce/ score parquets")
     s2.add_argument("--out", default="")
     s2.add_argument("--tag", default="", help="suffix for saved dev predictions (dev_stage2_<tag>.parquet)")
     s2.add_argument("--stage3", action="store_true",

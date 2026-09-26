@@ -1,5 +1,6 @@
 """Cluster (second-stage) features on a toy case with a hard true match that resembles the confident anchor."""
 import numpy as np
+import pytest
 import pandas as pd
 
 from src.er_stage2 import cluster_features
@@ -50,3 +51,15 @@ def test_stage3_features_blocks_match_single_pass():
     assert len(one) == 5 and all(c.startswith("t3_") for c in one.columns)
     assert not any("other_s1" in c or "margin_vs" in c for c in one.columns)
     assert one.t3_rank_in_s1.tolist() == [1, 1, 2, 3, 2]
+
+
+def test_with_ce_attaches_one_column_per_dir(tmp_path):
+    from src.er_fullpass import with_ce
+
+    chunks = [pd.DataFrame({"s1_id": ["S1-1", "S1-2"], "cand_id": ["S2-a", "S3-b"], "prob": [0.9, 0.1]})]
+    for name, v in (("a", [0.8, 0.2]), ("b", [0.7, 0.3])):
+        (tmp_path / name / "train_ce").mkdir(parents=True)
+        chunks[0][["s1_id", "cand_id"]].assign(ce_score=v).to_parquet(tmp_path / name / "train_ce" / "000.parquet")
+    out = with_ce(chunks, [str(tmp_path / "a"), str(tmp_path / "b")], "train")
+    assert out[0].ce_score.tolist() == pytest.approx([0.8, 0.2]) and out[0].ce_score_2.tolist() == pytest.approx([0.7, 0.3])
+    assert with_ce(chunks, "", "train") is chunks and with_ce(chunks, [], "train") is chunks
