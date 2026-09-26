@@ -111,6 +111,7 @@ before final rankings are confirmed. Code needs proper comments describing the f
 - **Every model** (embedder, reranker, matcher, preprocessing model) must independently be MIT/Apache-2.0, ≤ 8B
   parameters, run **offline** (no live API calls), and be **fine-tuned only on the provided data**. Licences are checked.
 - **Hosted LLM APIs (Claude/Gemini/ChatGPT) are not allowed** in the solution.
+- **Self-training on unlabeled test records** (pseudo-labels from our own predictions, no external data): confirmed allowed by the team lead (Shaunak) on 2026-09-26, as test records are provided data. Keep the organisers' wording/answer on file for the approach doc.
 
 ### Our compliance (keep current; mirrored in docs/REPRODUCE.md)
 | Component | Type | Licence | Params | Verdict |
