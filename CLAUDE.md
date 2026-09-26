@@ -98,6 +98,8 @@ The GitHub repo is the single source of truth; a teammate or Amazon scientist mu
 - Before each LB submission: commit exact code+config, run `scripts/tag_submission.py` (tag `sub-NN`, ledger row).
 - Docs in sync with code: update EXPERIMENTS.md and affected docs **in the same commit**.
 - Never commit data/, runs/, checkpoints/, oof/, weights, large files, or .env. Check `git status` before commits.
+- **Branches (since 26 Sep):** never commit to `main`. Personal branches `shreyas`, `shaunak`, `solanki`, `shivam`;
+  this assistant works **only on `shaunak`** (`git switch shaunak` first). `main` changes only via PR (docs/TEAM.md).
 - **Never force-push, rewrite history, or delete branches without asking.**
 - Final zip must build from the repo with one command: `scripts/make_submission_zip.py`.
 

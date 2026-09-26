@@ -230,6 +230,35 @@ def stage3_features(split_obj: Split, P: pd.DataFrame, block: int = 200_000) -> 
     return F.rename(columns=lambda c: "t3_" + c.removeprefix("s2_")).reset_index(drop=True)
 
 
+def lgb_params(a: argparse.Namespace) -> dict:
+    """LightGBM overrides for stage 2: --lr plus any JSON given with --lgb-params (e.g. '{"num_leaves": 255}')."""
+    return {"learning_rate": a.lr, **json.loads(a.lgb_params or "{}")}
+
+
+def cached_frame(a: argparse.Namespace, name: str, build) -> pd.DataFrame:
+    """Stage-2 design matrix from --frames DIR if cached there, else build() and (with --frames) save it.
+
+    The frames depend on the stage-1 chunks, the CE dirs and --comp-cols (and, for train, the fit/dev S1 sample);
+    only reuse a cache built with the same ones. frames.json records them and a mismatch raises."""
+    if not a.frames:
+        return build()
+    fd = Path(a.frames)
+    fd.mkdir(parents=True, exist_ok=True)
+    key = {"exp": a.exp, "ce_dir": list(a.ce_dir), "comp_cols": list(a.comp_cols), "views": list(a.views),
+           "fit_folds": list(a.fit_folds), "train_s1": a.train_s1}
+    meta, path = fd / "frames.json", fd / f"{name}_frame.parquet"
+    if meta.exists() and json.loads(meta.read_text(encoding="utf-8")) != key:
+        raise ValueError(f"{fd} was built for {meta.read_text()}, not {key}; use another --frames dir")
+    if path.exists():
+        log(f"loading cached {name} frame from {path}")
+        return pd.read_parquet(path)
+    X = build()
+    X.to_parquet(path, index=False)
+    meta.write_text(json.dumps(key), encoding="utf-8")
+    log(f"saved {name} frame {X.shape} -> {path}")
+    return X
+
+
 def cmd_stage2(a: argparse.Namespace) -> None:
     from src.er_data import dataset_dir
     from src.er_submission import write_outputs
@@ -242,7 +271,8 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     pool = folds.index[folds.fold.isin(a.fit_folds) & ~folds.dev].to_numpy()   # dev never fits (fold 0 holds dev)
     fit_ids = set(rng.choice(pool, size=min(a.train_s1, len(pool)), replace=False))
     dev_ids = set(folds.index[folds.dev])
-    X = stage2_frames(d, with_ce(load_chunks(rd, "train"), a.ce_dir, "train"), fit_ids | dev_ids, tuple(a.comp_cols))
+    X = cached_frame(a, "train", lambda: stage2_frames(d, with_ce(load_chunks(rd, "train"), a.ce_dir, "train"),
+                                                       fit_ids | dev_ids, tuple(a.comp_cols)))
     log(f"stage-2 frame {X.shape} [{time.time() - t0:.0f}s]")
     is_dev = X.s1_id.isin(dev_ids).to_numpy()
     Xtr, Xdev = X[~is_dev].reset_index(drop=True), X[is_dev].reset_index(drop=True)
@@ -260,7 +290,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
         ids = pd.Index(Xtr.s1_id.unique())
         g = pd.Series(np.random.default_rng(0).integers(0, 4, len(ids)), index=ids)
         groups = g.reindex(Xtr.s1_id).to_numpy()
-    oof, models = train_oof(feat, Xtr.y.to_numpy().astype(int), groups, {"learning_rate": a.lr},
+    oof, models = train_oof(feat, Xtr.y.to_numpy().astype(int), groups, lgb_params(a),
                             num_boost_round=a.rounds, early_stopping=50)
     fdev = Xdev.drop(columns=["prob"])
     fdev["s1_prob"] = Xdev.prob.to_numpy()
@@ -283,7 +313,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
         # stage 3: same frame + anchors re-picked with stage-2 probs (train: OOF, same S1 groups -> no leakage)
         f3 = pd.concat([feat.reset_index(drop=True), stage3_features(d, p_tr)], axis=1)
         f3dev = pd.concat([fdev.reset_index(drop=True), stage3_features(d, p_dev)], axis=1)
-        oof3, models3 = train_oof(f3, Xtr.y.to_numpy().astype(int), groups, {"learning_rate": a.lr},
+        oof3, models3 = train_oof(f3, Xtr.y.to_numpy().astype(int), groups, lgb_params(a),
                                   num_boost_round=a.rounds, early_stopping=50)
         p_tr3 = Xtr[["s1_id", "cand_id"]].assign(prob=oof3)
         p_dev3 = Xdev[["s1_id", "cand_id"]].assign(prob=predict(models3, f3dev))
@@ -301,7 +331,8 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     if not a.out:
         return
     te = Split("test", a.model, a.views)
-    Xt = stage2_frames(te, with_ce(load_chunks(rd, "test"), a.ce_dir, "test"), None, tuple(a.comp_cols))
+    Xt = cached_frame(a, "test", lambda: stage2_frames(te, with_ce(load_chunks(rd, "test"), a.ce_dir, "test"), None,
+                                                       tuple(a.comp_cols)))
     ft = Xt.drop(columns=["prob"])
     ft["s1_prob"] = Xt.prob.to_numpy()
     probs = Xt[["s1_id", "cand_id"]].assign(prob=predict(models, ft).astype(np.float32))
@@ -348,6 +379,8 @@ def main() -> None:
     s2.add_argument("--ce-dir", nargs="*", default=[], help="run dir(s) with train_ce/ and test_ce/ score parquets")
     s2.add_argument("--out", default="")
     s2.add_argument("--tag", default="", help="suffix for saved dev predictions (dev_stage2_<tag>.parquet)")
+    s2.add_argument("--frames", default="", help="cache dir for the stage-2 design matrices (load if present, else save)")
+    s2.add_argument("--lgb-params", default="", help='JSON LightGBM overrides, e.g. {"num_leaves": 255}')
     s2.add_argument("--comp-cols", nargs="*", default=[],
                     help="stage-1 columns for extra full-population competition features, e.g. name_full_tset")
     s2.add_argument("--stage3", action="store_true",
