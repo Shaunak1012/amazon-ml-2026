@@ -12,12 +12,15 @@ With 3 people, merge the 4th role into Lead + Modeling A.
 The **local RTX 5080 is shared**: one queue owner (see `docs/DAILY_LOG.md` "GPU queue"), everyone else uses CPU,
 AWS, or Kaggle/Colab notebooks for their own experiments.
 
-## Branches
-- `main`: always runnable; tests green. Only merge via PR or a fast-forward after tests pass.
-- Work branches: `<name>/<topic>` e.g. `asha/deberta-ft`, `ravi/img-embeds`. Short-lived (< 1 day).
-- Experiment code that won't be reused can stay on its branch; the **OOF files** are what matter.
-- Rebase your own branch on `main` freely; **never force-push shared branches or `main`**.
-- Submission tags `sub-NN` and the final tag `final` are created only by the Lead from `main`.
+## Branches (feature-branch workflow since 2026-09-26)
+- **Nobody commits directly to `main`.** Each teammate works on their own branch: `shreyas`, `shaunak`, `solanki`,
+  `shivam` (all created from `main` at `aca60ee`, tracked on origin).
+- `main` stays runnable with tests green; changes reach it **only through a reviewed PR** from a personal branch.
+- Keep your branch current with `git fetch && git merge origin/main` (or rebase your own branch); **never
+  force-push `main` or someone else's branch**.
+- Submission tags `sub-NN` go on the commit that produced the uploaded file (on its author's branch) and are logged in
+  `docs/SUBMISSIONS.md`. Submissions are shared (5/day for the team): claim a slot in the ledger before uploading.
+- Large artefacts (data/, runs/, checkpoints/, oof/, submissions/) are never committed; share them out of band.
 
 ## Sharing OOF predictions
 - Everyone writes via `src.oof.save_oof(...)` → `OOF_DIR/<exp_id>/{oof.parquet,test.parquet,meta.json}`.
