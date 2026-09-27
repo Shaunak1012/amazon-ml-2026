@@ -14,12 +14,14 @@ labelled **dev** (100k held-out train S1s that no model saw), **OOF** (out-of-fo
 ## 1. Executive Summary
 We use a cascade that starts with fast, high-recall steps and ends with precise, expensive ones. First, same-country
 dense retrieval over four multilingual-e5 views, one of them a bi-encoder we fine-tuned on train matches. Then a
-LightGBM filter, two fine-tuned cross-encoders, and a Qwen3-4B LoRA reranker that sees the *competing* S1s. Last, a
+LightGBM filter, three fine-tuned cross-encoders (multilingual-e5 small, base and large), and a Qwen3-4B LoRA reranker that sees the *competing* S1s. Last, a
 stage-2 LightGBM and an F0.5-tuned decision layer that gives each S2/S3 record to at most one S1. The final model runs
-on **4.71 candidates per S1 at 99.63% pair recall (dev)** and scores **{{FINAL: E023 dev F0.5 at test-like density}}
-dev / {{FINAL: E023 public LB}} LB**. The main idea is that features must mean the same thing on train, dev and test:
+on **3.83 candidates per S1 on dev (3.98 on test) at 99.1% pair recall** and scores **0.99099 dev** (best public LB
+before the final upload: 0.986359). The main idea is that features must mean the same thing on train, dev and test:
 cross-S1 features are computed over the full S1 population at test-like competitor density, and every learned score
-is out-of-sample on the S1s used to fit and validate the final model.
+is out-of-sample on the S1s used to fit and validate the final model. For France, the country absent from train,
+we adapt the cross-encoders with test-time self-training on our own confident predictions (allowed by the organisers)
+and with synthetic French-style training pairs built from the provided train records.
 
 ---
 
@@ -73,9 +75,9 @@ remaining error: look-alike names with empty addresses.
   bi-encoder** (in-batch InfoNCE, same-country batches, 1.5M train pairs of folds 1-4) on name + address.
   The union of all hits is the retrieved set. A stage-1 LightGBM on 32 cheap features (embedding cosines, rapidfuzz
   name/address similarities, number/postcode agreement, rank context) then filters it.
-- **Candidate pairs generated:** 3.83 per S1 on dev (pair recall 0.991); {{FINAL: test candidates per S1}} per S1 and
-  {{FINAL: total test candidate pairs}} pairs on test. The reduction ratio against all S1 × (S2 ∪ S3) pairs is
-  {{FINAL: exact test reduction ratio}}. Final filter: stage-1 probability ≥ 0.5 OR cross-encoder (E016) score ≥ 0.05.
+- **Candidate pairs generated:** 3.83 per S1 on dev (pair recall 0.991); 3.98 per S1 (US 3.76, India 3.86, France
+  4.92; at most 15) and 6,895,815 pairs on test. The reduction ratio against all S1 × (S2 ∪ S3) pairs is
+  99.99996%. Final filter: stage-1 probability ≥ 0.5 OR cross-encoder (E016) score ≥ 0.05.
   Tightening it from 4.71 to 3.83 per S1 cost only 0.00005 dev F0.5, because the dropped pairs were almost never
   matched. Stage 2 is fitted and applied on exactly this set, so `candidate_pairs.tsv` is the matcher's inference set.
 - **Scalability (billions of records):** no step compares all pairs. Retrieval is dense-vector k-nearest-neighbour
@@ -90,7 +92,12 @@ remaining error: look-alike names with empty addresses.
 | 3 off-the-shelf views (E003-E013) | top-10 per view per source | ~50 | 0.9740 |
 | A. Dense retrieval, 4 views (E015) | + fine-tuned view | ~62 | 0.9976 |
 | B. Stage-1 LightGBM | top-15 by stage-1 prob | 15 | 0.9974 |
-| **C. Final set = `candidate_pairs.tsv`** | stage-1 prob ≥ 0.2 **or** cross-encoder B ≥ 0.01 | **4.71** | **0.9963** |
+| C0. Earlier final set (sub-12 to sub-15) | stage-1 prob ≥ 0.2 **or** cross-encoder B ≥ 0.01 | 4.71 | 0.9963 |
+| **C. Final set = `candidate_pairs.tsv`** (the set fed to the matching model) | stage-1 prob ≥ 0.5 **or** cross-encoder B ≥ 0.05 | **3.83** | **0.9910** |
+
+A and B are internal blocking steps; `candidate_pairs.tsv` is C, exactly the rows the matching model (stage 2) is
+fitted and applied on. Smaller filters cost F0.5 quickly (3.67/S1: -0.00005 more; 3.55/S1: -0.00024) because the
+floor is our own 3.37 predicted matches per S1 (every matched ID must be a candidate), so 3.83 is the knee of the curve.
 
 - **How we ensured true matches were not lost:** we measured recall on dev at every stage before choosing a cut-off.
   Error analysis of E010 showed that 51% of the remaining loss was pairs never retrieved (India 3x worse than US), so
@@ -137,9 +144,9 @@ threshold 0.85 for S1s whose country string never occurs in train, from the same
 
 ## 5. Results & Error Analysis
 
-- **F_0.5 Score (macro):** {{FINAL: E023 dev F0.5}} dev at test-like density (OOF {{FINAL: E023 OOF}}), public LB
-  {{FINAL: E023 LB}}. Best dev before the final build: E022, 0.99116 dev / 0.99103 OOF at train density. Best LB
-  before it: 0.985645 (sub-10).
+- **F_0.5 Score (macro):** 0.99099 dev at test-like density (OOF 0.99100) for the final model (E033); the final
+  upload's public LB is on the portal. Best measured public LB before it: 0.986359 (sub-14). Dev and OOF agree to
+  0.00001 in every recent run.
 
 | Step (experiment) | Dev F0.5 | Public LB |
 |---|---:|---:|
@@ -149,10 +156,14 @@ threshold 0.85 for S1s whose country string never occurs in train, from the same
 | + name-rarity features (E013) | 0.9844 | 0.975726 |
 | + fine-tuned bi-encoder view, clean fold-0 fit pool (E015) | 0.9898 | 0.983322 |
 | + cross-encoder B, e5-base (E016) | 0.9905 | 0.984727 |
-| + name competition features (E017) | 0.9910 | 0.985645 (sub-10, with dropped self-training) |
+| + name competition features (E017) | 0.9910 | 0.985645 (sub-10, with self-training) |
 | + LLM reranker (E022) | 0.99116 | not submitted |
 | + test-like density (E025, dev at test-like density) | 0.98975 → 0.99039 | not submitted |
-| **Final E023** (E022 + v2 normalisation + density + 4.71/S1 filter, no self-training) | {{FINAL}} | {{FINAL}} |
+| + v2 normalisation, reranker on the wider band, 4.71/S1 filter (E023b) | 0.99100 | 0.98631 (sub-12) |
+| + France threshold 0.90 on the same probabilities | 0.99100 | 0.986359 (sub-14) |
+| + e5-large cross-encoder (E027) | 0.99104 | not submitted |
+| + francized e5-large (E029) + self-training on it (E030) | 0.99104 | not submitted |
+| **Final (E033)**: E030 + 3.83/S1 candidate filter + France threshold 0.85 | **0.99099** | final upload |
 
 - **Common false positives (wrong merges):** different businesses with the same or near-identical name (reused names,
   chain branches) when the address is empty or generic. **French records** before normalisation v2: "2 R PAUL
@@ -162,18 +173,20 @@ threshold 0.85 for S1s whose country string never occurs in train, from the same
   address is truncated, and Indic-script names with sparse addresses. After the bi-encoder, ~85% of the remaining dev
   loss is **retrieved but rejected** true matches, mostly empty-address records whose name nearly matches several S1s.
   The competition features and the LLM reranker target exactly this.
-- **Dev→LB gap** (0.0054 at sub-10). Our estimates of its parts: test-like density ~0.0011 (now modelled), France
+- **Dev→LB gap** (0.0054 at sub-10, 0.0047 at sub-12 after test-like density). Our estimates of its parts: test-like density ~0.0011 (now modelled), France
   ≥ 0.0024, denser test pool ~0.0002, and model overconfidence on test ~0.001-0.002.
 
 ---
 
 ## 6. Conclusion
 Recall first, then precision. A fine-tuned retrieval view removed most unretrievable pairs. Cross-encoders and a
-competitor-aware LLM reranker then attacked the look-alike merges that F0.5 punishes most. We kept the final set at
-4.71 candidates per S1 while losing only about 0.1 percentage point of pair recall. The biggest lessons were about validation, not
+competitor-aware LLM reranker then attacked the look-alike merges that F0.5 punishes most. We cut the final set to
+3.83 candidates per S1 (3.98 on test), 19% smaller than our first final, for 0.00005 dev F0.5. The biggest lessons were about validation, not
 models: features that compare a record's S1s must be computed over the full population and at test density, and each
-learned score must be out-of-sample where the next stage is fitted. We dropped test-time self-training despite its
-leaderboard use because it could not be validated and conflicted with "provided training data only".
+learned score must be out-of-sample where the next stage is fitted. Test-time self-training (confirmed allowed by the
+organisers) was the strongest lever for France: the self-trained e5-large cross-encoder cut French uncertain pairs
+per S1 from 0.447 to 0.331. Dev is bounded near 0.991 by empty-address records whose name is shared by several S1s
+(oracle +0.0053): nothing in such a record identifies its owner, and we did not use ID or row-order signals.
 
 ---
 
@@ -217,12 +230,16 @@ organisers' TSVs (~24 h, ~20 GPU-hours on one RTX 5080 16 GB, 64 GB RAM) and run
 | E015 | rebuild with the 4th view; stage 1/2 fitted on fold 0 minus dev | dev 0.9898 (stage 1 alone 0.9603); stage 3 no gain | yes |
 | E016 | + cross-encoder B (e5-base, 3M pairs, folds 1-4) | dev 0.9905 | yes |
 | E017 | + competition features on 5 name similarities | dev 0.9910 | yes |
-| E018/E020 | self-training of cross-encoder B on test pseudo-labels | not measurable on dev; LB 0.985645 | **dropped** (unvalidated; compliance risk) |
+| E018/E020 | self-training of cross-encoder B on test pseudo-labels | not measurable on dev; LB 0.985645 | yes (confirmed allowed by the organisers) |
 | E022 | + Qwen3-4B LoRA reranker on the (0.1, 0.9) band | dev 0.99116 (+0.00019), OOF +0.00030; band AUC 0.922 vs cross-encoder 0.770 | yes |
 | E024 | + normalisation v2 features | dev 0.99098 (neutral; aimed at France) | yes |
 | E025 | test-like competitor density (keep 0.78) | test-like-density dev 0.98975 → 0.99039 | yes |
 | E026 | LightGBM tuning (lr, leaves, min leaf, feature fraction, L2, 3 seeds) | all within ±0.00015 | no (saturated) |
-| E023 | final build (Section 5) | {{FINAL}} | final |
+| E027 | + multilingual-e5-large cross-encoder (1.5M pairs, folds 1-4), scored on final candidates only | dev 0.99104 (+0.00004) | base for E029/E030 |
+| E028 | importance-weighted stage 2 for the unseen country (domain AUC 0.919) | no gain | no |
+| E029 | e5-large continued on francized train pairs (hand-written generic-word dictionary) | francized-dev AUC 0.911 -> 0.992 | base for E030 |
+| E030 | self-training of E029 on 350k confident test pseudo-labels (France, US, India) | French uncertain pairs/S1 0.331 (lowest) | yes |
+| E032/E033 | stricter candidate filter (3.83/S1) refits of E023b-ST / E030 | dev 0.99095 / **0.99099** | E033 = final |
 
 #### B.2 Stage-2 features (80)
 - **Stage 1 (32 + probability):** `cos_{name,addr,both,both_ft}`; `name_{ratio,tset,tsort,partial,jw,full_tset,exact_core,len_l,len_r}`;
@@ -247,8 +264,10 @@ organisers' TSVs (~24 h, ~20 GPU-hours on one RTX 5080 16 GB, 64 GB RAM) and run
 | Cross-encoder A (E008) | e5-small, 2M pairs (40% pos), batch 128, lr 3e-5, warm-up 6%, 1 epoch, max len 96 | 24 min + 1.4 h scoring |
 | Cross-encoder B (E016) | e5-base, 3M pairs, batch 64, lr 2e-5, 1 epoch | 2.4 h + 1.2 h scoring |
 | LLM reranker (E022) | Qwen3-4B bf16, LoRA r 16 / alpha 32 / dropout 0.05 on q,k,v,o,gate,up,down; lr 1e-4 one-cycle; batch 16; max len 256; 40k prompts, 1 epoch | 1.1 h train; 3.3 h scoring (batch 32) |
-| Stage 2 (E023) | same LightGBM settings; fitted on fold 0 minus dev; competition density keep 0.78 | ~1.5 h CPU |
-| Total | | ~24 h wall clock, ~20 GPU-hours |
+| Cross-encoder C (E027) | multilingual-e5-large, 1.5M pairs, batch 32, lr 1.5e-5, 1 epoch | 2.2 h + 1.8 h scoring |
+| E029 / E030 | continued training, lr 1e-5: 450k francized+original pairs / 465k pseudo-labelled+original pairs | 1 h / 55 min + 20 min scoring each |
+| Stage 2 (final) | same LightGBM settings; fitted on fold 0 minus dev; competition density keep 0.78 | ~0.5-1.5 h CPU |
+| Total | | ~36 h wall clock, ~34 GPU-hours |
 
 #### B.4 Error analysis and probes
 - **Before the bi-encoder (E010):** 51% of the dev loss was never-retrieved pairs, 3x worse in India. The bi-encoder
@@ -286,12 +305,13 @@ Normalisation uses small hand-written generic dictionaries (legal-form words, st
 | sub-07 | E013 rarity | 0.9844 / 0.9843 | 0.975726 |
 | sub-08 | E015 bi-encoder view | 0.9898 / 0.9896 | 0.983322 |
 | sub-09 | E016 cross-encoder B | 0.9905 / 0.9901 | 0.984727 |
-| sub-10 | E020 (E017 + self-training, now dropped) | 0.9910 / 0.9907 | 0.985645 |
+| sub-10 | E020 (E017 + self-training) | 0.9910 / 0.9907 | 0.985645 |
 | sub-11 | E017 (sub-10 without self-training; A/B) | 0.9910 / 0.9907 | 0.985144 |
 | sub-12 | E023b-full (reranker full band, density, norm2, 4.74/S1 filter) | 0.99100 / 0.99096 | 0.98631 |
 | sub-13 | sub-12 probabilities, France threshold 0.55 | same | 0.985959 |
 | sub-14 | sub-12 probabilities, France threshold 0.90 | same | 0.986359 |
-| {{FINAL: final tag}} | {{FINAL: final model}} | {{FINAL}} | {{FINAL}} |
+| sub-15 | E023b-ST, France 0.85 | 0.99100 / 0.99096 | not uploaded (team slots) |
+| sub-16 | **E033 final**: E030 self-trained e5-large, 3.98 cands/S1, France 0.85 | 0.99099 / 0.99100 | final upload |
 
 ---
 
