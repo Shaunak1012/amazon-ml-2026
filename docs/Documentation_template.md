@@ -73,9 +73,17 @@ remaining error: look-alike names with empty addresses.
   bi-encoder** (in-batch InfoNCE, same-country batches, 1.5M train pairs of folds 1-4) on name + address.
   The union of all hits is the retrieved set. A stage-1 LightGBM on 32 cheap features (embedding cosines, rapidfuzz
   name/address similarities, number/postcode agreement, rank context) then filters it.
-- **Candidate pairs generated:** 4.71 per S1 on dev; 4.743 per S1 and
-  8,217,926 pairs on test. The reduction ratio against all S1 × (S2 ∪ S3) pairs is about
-  99.9999% (99.999952%).
+- **Candidate pairs generated:** 3.83 per S1 on dev (pair recall 0.991); {{FINAL: test candidates per S1}} per S1 and
+  {{FINAL: total test candidate pairs}} pairs on test. The reduction ratio against all S1 × (S2 ∪ S3) pairs is
+  {{FINAL: exact test reduction ratio}}. Final filter: stage-1 probability ≥ 0.5 OR cross-encoder (E016) score ≥ 0.05.
+  Tightening it from 4.71 to 3.83 per S1 cost only 0.00005 dev F0.5, because the dropped pairs were almost never
+  matched. Stage 2 is fitted and applied on exactly this set, so `candidate_pairs.tsv` is the matcher's inference set.
+- **Scalability (billions of records):** no step compares all pairs. Retrieval is dense-vector k-nearest-neighbour
+  search per view, partitioned by country; at competition size we ran it as an exact chunked GPU inner product to
+  maximise recall, and at production size the same embeddings go into an approximate index (FAISS IVF-PQ or HNSW,
+  sharded by country/region), which answers top-k in roughly O(log M) per query with the same k. Every later stage
+  (stage-1 LightGBM, cross-encoders, reranker, stage 2) runs only on the ≤ 15 retrieved pairs per S1 and then on the
+  final ~3.8, so the cost is linear in the number of S1 records.
 
 | Stage (dev, 100k S1) | Rule | Candidates / S1 | Pair recall |
 |---|---|---:|---:|
