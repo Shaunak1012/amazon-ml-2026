@@ -13,6 +13,17 @@ differently because of it.
   ensemble ("add") and one full refit at fixed rounds ("full", x1.00/x1.25); calibration, threshold transfer and
   test decision drift per country (France at 0.85) as detriment checks. Two regimes: E034-like (E023b density,
   3.83 filter, OW04) and our final-v2. Results below when in.
+- **RF01 result (17:25): no gain, no harm; not worth a slot.** Paired deltas on 50k dev S1 per half, +50k S1 in fit:
+  | regime / half | seed noise (g1-g0) | add g0 | add g1 | full x1.00 vs base | full x1.00 vs add |
+  |---|---|---|---|---|---|
+  | E034-like A | +0.00004 | +0.00001 | +0.00006 | -0.00005 | -0.00006 |
+  | E034-like B | +0.00010 | +0.00009 | +0.00007 | +0.00005 | -0.00004 |
+  | final-v2 A | -0.00001 | -0.00005 | +0.00002 | -0.00004 | +0.00001 |
+  Every 95% CI spans 0; "add" ~+0.00004 on average = seed-to-seed noise. Detriment checks clean: log loss improves
+  by 0.00005-0.00017 in all 6 add arms (full refit is slightly worse calibrated than add), OOF-dev gap, matches/S1,
+  empty share and the dev-optimal threshold unchanged; early stopping lands at ~100 rounds (lr 0.1) in every arm, so
+  stage 2 is data-saturated at 300k S1. Side result: two partition seeds of the SAME model differ by up to 0.00010
+  on 50k dev S1, so a +0.0001 dev gate (E035) is at the noise level.
 
 ## 2026-09-27 15:00 IST: FINAL v2 (OW04) = v1 within noise
 Our final regime, v2 (OW04 e5-large owner) vs v1 (OW03): normal dev 0.99125 vs 0.99117 (+0.00008), test-like dev
