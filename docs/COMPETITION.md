@@ -123,7 +123,7 @@ before final rankings are confirmed. Code needs proper comments describing the f
 - **Hosted LLM APIs (Claude/Gemini/ChatGPT) are not allowed** in the solution.
 - **Self-training on unlabeled test records** (pseudo-labels from our own predictions): the team lead's reading on
   2026-09-26, **not confirmed by the organisers**; the statement's Fair Play line says "using only the provided training
-  data". **Dropped from the final build (26 Sep 22:40) to remove the risk**; only sub-10 used it.
+  data". **Organisers confirmed on 27 Sep that self-training and synthetic pairs from the provided records are allowed** (unsupervised stats on test, offline rule-based text libraries, own transliteration also fine; cleanco not allowed; candidate_pairs.tsv = the final candidate set fed to the matching model). Used in the final.
 
 ### Our compliance (keep current; mirrored in docs/REPRODUCE.md)
 | Component | Type | Licence | Params | Verdict |
