@@ -3,6 +3,27 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-27 14:40 IST: paired comparisons in Shaunak's E023b regime
+Regime copied (read-only from origin/shaunak, no merge) into src/er_frames2.py: `density_mask` (all fit + dev S1s
+kept + random 0.78 of the other train S1s as competitors, seed 11, draws over the chunk-order S1 list; competition
+features recomputed on that population, rarity not), and E023b's candidate filter applied AFTER features
+(`--prune-post`): stage-1 p >= 0.2 OR E016 CE >= 0.01 (E016 train scores = ce_score_2 of the E019 frame).
+Identical dev rows in every arm (100,000 dev S1; 4.706 cand/S1; recall 0.99628 = E023b's reported recall).
+
+| arm | dev F0.5 | vs base | US | India |
+|---|---|---|---|---|
+| (a) baseline (no norm2, no LLM reranker feature) | 0.99024 | - | 0.98955 | 0.99129 |
+| (b) + OW03 owner features (e5-base, GPU) | 0.99107 | +0.00083 | 0.99037 | 0.99213 |
+| (c) + CE03 (e5-large cross-encoder, GPU) | 0.99057 | +0.00033 | 0.99004 | 0.99139 |
+| (d) + OW03 + CE03 | 0.99126 | +0.00102 | 0.99068 | 0.99215 |
+
+- Baseline sits below E023b-full (0.99100) because our frames lack his norm2 features and E022 reranker score
+  (together ~+0.00076 in his runs: E025 0.99039 -> E023b 0.99100 with the filter).
+- The owner signal is worth ~3x more at test-like density (+0.00083) than at train density (+0.00026).
+- If roughly additive: E023b + OW03 + CE03 ~ 0.9920 dev (medium confidence). Features ready for him as parquet keyed by
+  (s1_id, cand_id): OW03 train/test_owner, CE03 train/test ce3 (fold-0 + test, trained on folds 1-4 only).
+- OW04 (e5-large owner model) arms (e)/(f) computed the same way: pending.
+
 ## 2026-09-27 13:05 IST: FINAL v1 built (clean, 4.54 cand/S1, organiser validator PASS)
 - CE03 (e5-large CE, GB10): alone +0.00006 dev; with OW03 0.99134. As a candidate filter (p >= 0.05 OR ce3 >= 0.10):
   4.13 cand/S1 on dev at 0.99131 (-0.00003), recall 0.9908.
