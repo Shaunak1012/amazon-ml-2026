@@ -26,6 +26,7 @@ ap.add_argument("--out", default="docs/architecture", help="output path without 
 ap.add_argument("--france-unc", default="0.331", help="final French uncertain pairs per S1")
 ap.add_argument("--st2", action="store_true", help="second France self-training round (E036)")
 ap.add_argument("--rescue", action="store_true", help="unseen-country candidate rescue (E037)")
+ap.add_argument("--cand-test", default="Test: 3.98 / S1 (US 3.76, India 3.86, France 4.92), 6.9M pairs")
 A = ap.parse_args()
 
 fig, ax = plt.subplots(figsize=(14, 16.8 if A.owner else 16))
@@ -85,7 +86,7 @@ STEPS = [
      ["stage-1 prob >= 0.5  OR  cross-encoder (E016) >= 0.05: exactly the matcher's input"]
      + (["France: also kept if the France-adapted e5-large CE >= 0.5 (rescue)"] if A.rescue else []) +
      [
-      "Test: 3.98 / S1 (US 3.76, India 3.86, France 4.92), 6.9M pairs"],
+      A.cand_test],
      "3.83 / S1 (dev)   ·   pair recall 0.991   ·   reduction ratio 99.99996%"),
     ("model", "Stage-2 LightGBM matcher (fusion)",
      (["Fuses every score above, incl. the two owner features (blank where uncontested),",
