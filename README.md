@@ -1,21 +1,26 @@
-# Amazon ML Challenge 2026: team repository
+# Amazon ML Challenge 2026: business entity resolution (team SHSHSHSH)
 
-Our team's entry for the Amazon ML Challenge 2026 (India, hosted on Unstop): a 72-hour machine learning
-hackathon that opens on **25 Sep 2026 at 00:00 IST**. The problem statement and dataset have not been released
-yet. Right now this repo is a **problem-agnostic scaffold**. It contains:
-- an exact-metric library with tests,
-- a shared cross-validation splitter,
-- out-of-fold prediction storage for ensembling,
-- a submission validator,
-- a resumable GPU training template,
-- a training heartbeat monitor that sends Discord alerts.
+Team: Shaunak A. Rai, Shaswat Solanki, Shivam Anand, Shreyas Sreenivas. 72-hour hackathon, 25-27 Sep 2026.
 
-We'll replace this paragraph with a description of the approach once the task is known.
+**Task:** for every Source-1 business record, find its matching records in Sources 2 and 3 (name, address, country;
+US and India in train, plus France only in test). Outputs: `matching_results.tsv`, scored by macro F0.5 per S1 entity,
+and `candidate_pairs.tsv`, the candidate set fed to the matching model (smaller sets rank higher).
+
+**Approach (final, E033):** same-country dense retrieval over four multilingual-e5 views (one a fine-tuned
+bi-encoder), a stage-1 LightGBM filter, three fine-tuned cross-encoders (e5 small/base/large), a Qwen3-4B LoRA
+reranker that sees competing S1s, and a stage-2 LightGBM with full-population competition features at test-like
+density, followed by a precision-first decision layer (threshold 0.75, 0.85 for the country absent from train, one S1
+per record). France is handled by test-time self-training and francized synthetic training pairs, both built only
+from the provided data. Details: [docs/Documentation_template.md](docs/Documentation_template.md); rebuild both TSVs
+with [scripts/reproduce.sh](scripts/reproduce.sh) ([docs/REPRODUCE.md](docs/REPRODUCE.md)).
 
 ## Current best
-| | Local CV | Public LB | Experiment | Tag |
-|---|---|---|---|---|
-| Best | 0.9844 (dev F0.5) | **0.975726** | E013 (two-stage LightGBM + cross-encoder + name rarity) | `sub-07` |
+| | Dev F0.5 (test-like density) | Public LB | Candidates / S1 (test) | Experiment | Tag |
+|---|---|---|---|---|---|
+| Final | 0.99099 (OOF 0.99100) | final upload | 3.98 (RR 99.99996%, dev recall 0.991) | E033 | `sub-16` |
+| Best measured LB | 0.99100 | **0.986359** | 4.74 | E023b-full, France threshold 0.90 | `sub-14` |
+
+History of every experiment: [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md); every upload: [docs/SUBMISSIONS.md](docs/SUBMISSIONS.md).
 
 ## Quick start
 ```bash
