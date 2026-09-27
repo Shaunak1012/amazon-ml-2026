@@ -1,9 +1,11 @@
-"""Final pipeline diagram (docs/architecture.png + .svg) for the approach doc and README.
+"""Final pipeline diagram (PNG + SVG) for the approach doc and README.
 
-    python scripts/plot_architecture.py
+    python scripts/plot_architecture.py                                   # E033 -> docs/architecture.png
+    python scripts/plot_architecture.py --final E034 --owner --dev 0.9912 --out docs/architecture
 """
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import matplotlib
@@ -16,9 +18,16 @@ INK, MUTED, LINE = "#1f2933", "#52606d", "#9aa5b1"
 FILL = {"data": "#eef2f7", "block": "#e3f0fb", "score": "#fdf1e3", "model": "#e6f4ea", "out": "#f3e8fd", "side": "#fff8e1"}
 EDGE = {"data": "#7b8794", "block": "#2f80c2", "score": "#d9822b", "model": "#2e8b57", "out": "#8e44ad", "side": "#c9a227"}
 
-fig, ax = plt.subplots(figsize=(14, 16))
+ap = argparse.ArgumentParser()
+ap.add_argument("--final", default="E033")
+ap.add_argument("--dev", default="0.99099", help="dev macro F0.5 of the final model (test-like density)")
+ap.add_argument("--owner", action="store_true", help="include the OW04 listwise owner model (E034)")
+ap.add_argument("--out", default="docs/architecture", help="output path without extension")
+A = ap.parse_args()
+
+fig, ax = plt.subplots(figsize=(14, 16.8 if A.owner else 16))
 ax.set_xlim(0, 100)
-ax.set_ylim(-12, 124)
+ax.set_ylim(-20, 124)
 ax.axis("off")
 
 
@@ -44,7 +53,7 @@ def arrow(x1, y1, x2, y2, label=None, dashed=False):
 
 
 CX, W = 37, 66
-ax.text(50, 122.5, "Business entity resolution: final pipeline (E033)", ha="center", fontsize=17, fontweight="bold",
+ax.text(50, 122.5, f"Business entity resolution: final pipeline ({A.final})", ha="center", fontsize=17, fontweight="bold",
         color=INK)
 ax.text(50, 119.6, "Amazon ML Challenge 2026 - team SHSHSHSH - cascade from high recall to high precision",
         ha="center", fontsize=10.5, color=MUTED)
@@ -65,19 +74,25 @@ STEPS = [
     ("score", "Pair scorers (out-of-sample on the stage-2 fit pool)",
      ["Cross-encoders: e5-small (E008), e5-base (E016), e5-large (E027)",
       "e5-large adapted to France: francized train pairs (E029) + test self-training (E030)",
-      "Qwen3-4B LoRA reranker on the uncertain band (prompt shows the competing S1s)"], None),
+      "Qwen3-4B LoRA reranker on the uncertain band (prompt shows the competing S1s)"]
+     + (["Listwise owner model OW04 (e5-large, folds 1-4): reads a contested record with up to",
+         "6 competing S1s and predicts which one owns it -> owner probability + owner margin"] if A.owner else []),
+     None),
     ("out", "C. Candidate filter  ->  candidate_pairs.tsv",
      ["stage-1 prob >= 0.5  OR  cross-encoder (E016) >= 0.05: exactly the matcher's input",
       "Test: 3.98 / S1 (US 3.76, India 3.86, France 4.92), 6.9M pairs"],
      "3.83 / S1 (dev)   ·   pair recall 0.991   ·   reduction ratio 99.99996%"),
-    ("model", "Stage-2 LightGBM matcher",
-     ["All scores above + cluster (sibling) features + full-population competition",
-      "features (margin over each record's best other S1), test-like density (keep 0.78)",
-      "Fitted on fold-0 S1s outside dev, unseen by every upstream learned model"], None),
+    ("model", "Stage-2 LightGBM matcher (fusion)",
+     (["Fuses every score above, incl. the two owner features (blank where uncontested),",
+       "with cluster (sibling) features and full-population competition features"] if A.owner else
+      ["All scores above + cluster (sibling) features + full-population competition"]) +
+     (["(margin over each record's best other S1) at test-like density (keep 0.78)"] if A.owner else
+      ["features (margin over each record's best other S1), test-like density (keep 0.78)"]) +
+     ["Fitted on fold-0 S1s outside dev, unseen by every upstream learned model"], None),
     ("out", "Decision layer  ->  matching_results.tsv",
      ["Threshold 0.75 (0.85 for the country absent from train);",
       "each record to at most one S1; empty list when nothing passes"],
-     "macro F0.5 0.99099 (dev, test-like density)"),
+     f"macro F0.5 {A.dev} (dev, test-like density)"),
 ]
 top, GAP, centre = 116.0, 3.6, {}
 for i, (kind, title, lines, stat) in enumerate(STEPS):
@@ -88,6 +103,7 @@ for i, (kind, title, lines, stat) in enumerate(STEPS):
         arrow(CX, lo - 0.3, CX, lo - GAP + 0.6)
     top = lo - GAP
 bottom = top + GAP
+ax.set_ylim(bottom - 12, 124)
 
 SX, SW = 88, 23
 for idx, title, lines in ((3, "France (unseen in train)",
@@ -107,10 +123,11 @@ for i, (k, t) in enumerate(legend):
     lx = 8 + i * 15.2
     ax.add_patch(plt.Rectangle((lx, bottom - 5.6), 2.6, 2.2, fc=FILL[k], ec=EDGE[k], lw=1.3, zorder=5, clip_on=False))
     ax.text(lx + 3.4, bottom - 4.1, t, fontsize=9, va="center", color=MUTED)
-ax.text(50, bottom - 8.5, "Compute: ~34 GPU-hours on one RTX 5080 (16 GB) + 64 GB RAM. Models: multilingual-e5 (MIT), Qwen3-4B "
-        "(Apache-2.0), LightGBM (MIT).", ha="center", fontsize=9, color=MUTED)
+ax.text(50, bottom - 8.5, "Compute: ~34 GPU-hours on one RTX 5080 (16 GB) + 64 GB RAM"
+        + (" (+ OW04 trained on a teammate's GPU)" if A.owner else "")
+        + ". Models: multilingual-e5 (MIT), Qwen3-4B (Apache-2.0), LightGBM (MIT).", ha="center", fontsize=9, color=MUTED)
 
-out = Path("docs")
-fig.savefig(out / "architecture.png", dpi=170, bbox_inches="tight", facecolor="white")
-fig.savefig(out / "architecture.svg", bbox_inches="tight", facecolor="white")
-print("wrote docs/architecture.png, docs/architecture.svg")
+out = Path(A.out)
+fig.savefig(out.with_suffix(".png"), dpi=170, bbox_inches="tight", facecolor="white")
+fig.savefig(out.with_suffix(".svg"), bbox_inches="tight", facecolor="white")
+print(f"wrote {out}.png, {out}.svg")
