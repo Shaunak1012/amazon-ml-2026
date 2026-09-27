@@ -103,3 +103,15 @@ Decisions:
 - **Alternatives:** latest wheels (blocked by Smart App Control); turning SAC off. That is reversible on this build
   (post-April-2026 updates), so it's the fallback if a needed package is ever blocked.
 - **Why:** get a working CUDA stack without changing security settings.
+
+## 2026-09-27 11:15 IST: self-training back in (user decision)
+- **Chosen:** use the self-trained CE scores on test (E020-ce; pseudo-labels from our own model on provided test inputs, no labels, no external data) for sub-15 and the final.
+- **Why:** measured +0.0005 LB (sub-10 vs sub-11); US/India are saturated at ~0.991 dev, France is the gap, and top-50 needs ~0.989.
+- **Risk accepted:** organisers never confirmed test-time self-training; the Fair Play line says "using only the provided training data".
+- **Unchanged:** candidate_pairs.tsv is byte-identical to sub-12 (4.743/S1, recall 0.99628 dev / 0.99621 fit, RR 99.999952%).
+
+## 2026-09-27 13:15 IST: smaller candidate set (organisers email)
+- **Context:** organisers (27 Sep) rank a smaller candidate set per S1 higher in the final evaluation, beyond the LB, and will review the candidate code.
+- **Chosen:** candidate filter stage-1 >= 0.5 OR E016 CE >= 0.05 -> dev 3.83/S1 (was 4.71), recall dev 0.99096 / fit 0.99110 (was 0.9963), dev F0.5 cost -0.00005 without refit; stage 2 is refitted on exactly this set so candidate_pairs.tsv = the model inference set.
+- **Alternatives:** 4.41/S1 (recall 0.995), 4.18 (0.994), 3.67 (0.988, F0.5 -0.0001), 3.55 (0.984, -0.0003). The dropped pairs are almost never matched, so recall loss barely moves F0.5.
+- **Supersedes** the earlier recall >= 0.996 / ~4.7 per S1 target.

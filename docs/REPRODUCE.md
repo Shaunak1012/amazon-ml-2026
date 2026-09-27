@@ -72,9 +72,9 @@ Options (environment variables, defaults first):
   (+2.5 h). `0` trains it on the E015 chunks instead. That uses the same folds (1-2) and keeps fold 0 unseen, but the
   weights are not identical to ours.
 - `LLM_BAND=core|full`: reranker feature on the E016 band (0.1, 0.9) only, or also on the wider band
-  (0.02, 0.1] U [0.9, 0.98). {{FINAL: band used by the final submission}}
+  (0.02, 0.1] U [0.9, 0.98). The final submission uses `full`.
 - `FINAL_VARIANT=base|unseen`: `unseen` copies `output_unseen/` (threshold 0.85 for S1 countries absent from train,
-  from the same stage-2 run) into `output/`. {{FINAL: variant used by the final submission}}
+  from the same stage-2 run) into `output/`. The final submission uses `unseen`.
 - `SKIP_DOWNLOAD=1`: the base models are already cached.
 - `PY=...`: the interpreter to use.
 

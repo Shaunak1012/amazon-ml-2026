@@ -106,6 +106,8 @@ def cmd_score(a: argparse.Namespace) -> None:
                 continue
             ce = pd.read_parquet(f)
             sel = np.isin(country_of.reindex(ce.s1_id).to_numpy(), a.country)
+            if a.only_scored:   # base CE scored only the final candidate rows (NaN elsewhere): keep that support
+                sel &= ce.ce_score.notna().to_numpy()
             if a.uncertain:     # only pairs the base CE is unsure about; confident ones keep the base score
                 sel &= ((ce.ce_score > a.uncertain[0]) & (ce.ce_score < a.uncertain[1])).to_numpy()
             if sel.any():
@@ -141,6 +143,7 @@ def main() -> None:
     s.add_argument("--country", nargs="+", required=True)
     s.add_argument("--uncertain", type=float, nargs=2, default=None, metavar=("LO", "HI"),
                    help="re-score only rows whose base CE score is in (LO, HI), e.g. 0.02 0.98")
+    s.add_argument("--only-scored", action="store_true", help="re-score only rows the base CE scored (not NaN)")
     s.add_argument("--base-ce", required=True, help="CE score dir to copy (train_ce) and patch (test_ce)")
     s.add_argument("--out", required=True)
     s.add_argument("--batch", type=int, default=512)

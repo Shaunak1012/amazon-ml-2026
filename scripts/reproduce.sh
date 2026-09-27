@@ -18,10 +18,11 @@
 #                              bit-identical to what we ran)
 #   LLM_BAND=core              core = reranker feature on the E016-CE band (0.1, 0.9) only (runs/E022-llmce);
 #                              full = also the wider band (0.02, 0.1] U [0.9, 0.98) (runs/E022-llmce-full, +~5 h GPU)
-#                              {{FINAL: set the default to the band used by the final submission}}
-#   FINAL_VARIANT=base         base = global decision threshold for every country; unseen = the stricter threshold
+#                              (default full = the final submission)
+#   FINAL_VARIANT=unseen       base = global decision threshold for every country; unseen = the stricter threshold
 #                              (0.85) for S1 countries absent from train, written by the SAME stage-2 run
-#                              {{FINAL: set the default to the variant uploaded as the final submission}}
+#                              (default unseen = the final submission)
+#   FINAL_STACK=e030           e023b_st | e029 | e030: CE stack of the final stage 2 (steps 12c-12h)
 #
 # Most steps are resumable (embeddings, model training checkpoints, scoring shards, stage-1 chunks): after a crash,
 # re-running this script skips finished work where the step supports it.
@@ -31,8 +32,9 @@ cd "$(dirname "$0")/.."
 
 PY="${PY:-python}"
 E008_FAITHFUL="${E008_FAITHFUL:-1}"
-LLM_BAND="${LLM_BAND:-core}"
-FINAL_VARIANT="${FINAL_VARIANT:-base}"
+LLM_BAND="${LLM_BAND:-full}"
+FINAL_VARIANT="${FINAL_VARIANT:-unseen}"
+FINAL_STACK="${FINAL_STACK:-e030}"
 DATA="${DATA_DIR:-data}"
 export PYTHONUNBUFFERED=1
 
@@ -233,25 +235,77 @@ if [ "$LLM_BAND" = full ]; then
 fi
 
 # ---------------------------------------------------------------------------------------------------------------------
-# 13. Final stage 2 (E023) + decisions + both TSVs, in ONE run.
+# 12c-12h. Final-day stack (27 Sep): self-training on test inputs (pseudo-labels from our own stage 2; no labels, no
+#     external data), the e5-large cross-encoder, its francized continuation and its self-trained version.
+#     FINAL_STACK=e023b_st | e029 | e030 selects the CE directories of the final stage 2 (step 13).
+#     All learned models train on folds 1-4 + test pseudo-labels only; fold 0 stays clean for stage 2 and dev.
+# ---------------------------------------------------------------------------------------------------------------------
+PS1_PROBS=runs/E015/sub_E016/test_probs_stage2.parquet
+step "12c. pseudo-label source 1: E016 stage 2 (test probabilities for E018/E020)"
+"$PY" -m src.er_fullpass stage2 --exp E015 --views name addr both both_ft --ce-dir runs/E015-ce runs/E016-ce \
+    --fit-folds 0 --tag E016 --out runs/E016-sub
+mkdir -p runs/E015/sub_E016 && cp runs/E015/test_probs_stage2.parquet "$PS1_PROBS"
+step "12d. self-training: E018 (France, all rows) + E020 (US/India, CE-uncertain rows) -> runs/E020-ce"
+"$PY" -m src.er_selftrain train --probs "$PS1_PROBS" --country France --base runs/E016-ce-base/model --out runs/E018-ce-fr/model
+"$PY" -m src.er_selftrain score --model runs/E018-ce-fr/model --country France --base-ce runs/E016-ce --out runs/E018-ce
+"$PY" -m src.er_selftrain train --probs "$PS1_PROBS" --country US India --base runs/E016-ce-base/model --out runs/E020-ce-usin/model
+"$PY" -m src.er_selftrain score --model runs/E020-ce-usin/model --country US India --uncertain 0.02 0.98 \
+    --base-ce runs/E018-ce --out runs/E020-ce
+KEEP="--keep-prob 0.2 --keep-ce-dir runs/E016-ce --keep-ce 0.01"
+step "12e. E027 multilingual-e5-large cross-encoder (folds 1-4), scored on the final candidate rows only"
+"$PY" -m src.er_crossenc train --chunks runs/E015/train_chunks --out runs/E027-ce-large/model --n 1500000 \
+    --exclude-folds 0 --model-name intfloat/multilingual-e5-large --batch 32 --lr 1.5e-5 --ckpt-every 2000
+"$PY" -m src.er_crossenc score --model runs/E027-ce-large/model --chunks runs/E015/train_chunks --split train \
+    --out runs/E027-ce/train_ce --only-folds 0 $KEEP --batch 256
+"$PY" -m src.er_crossenc score --model runs/E027-ce-large/model --chunks runs/E015/test_chunks --split test \
+    --out runs/E027-ce/test_ce $KEEP --batch 256
+if [ "$FINAL_STACK" != e023b_st ]; then
+  step "12f. E029: E027 continued on francized train pairs; unseen-country test rows re-scored -> runs/E029-ce"
+  "$PY" scripts/francize_ce.py train
+  "$PY" scripts/francize_ce.py score
+fi
+if [ "$FINAL_STACK" = e030 ]; then
+  step "12g. pseudo-label source 2: E023b-ST stage 2 (test probabilities for E030)"
+  "$PY" -m src.er_fullpass stage2 --exp E015 --views name addr both both_ft \
+      --ce-dir runs/E015-ce runs/E020-ce "$LLM_CE" --fit-folds 0 --tag E023b_st \
+      --comp-cols cos_name name_ratio name_jw name_full_tset name_tsort --norm2 --comp-keep 0.78 \
+      --prune-eps 0.2 --prune-ce-dir runs/E016-ce --prune-ce 0.01 --out runs/E023b-st-sub
+  mkdir -p runs/E015/sub_E023b_st && cp runs/E015/test_probs_stage2.parquet runs/E015/sub_E023b_st/
+  step "12h. E030: self-training of E029 (France + US/India pseudo-labels) -> runs/E030-ce"
+  cp runs/E027-ce-large/model/train_pairs.parquet runs/E029-ce-fr/model/
+  "$PY" -m src.er_selftrain train --probs runs/E015/sub_E023b_st/test_probs_stage2.parquet --country France US India \
+      --base runs/E029-ce-fr/model --out runs/E030-ce-st/model --n-pos 150000 --n-neg 200000 --batch 32 --lr 1e-5
+  "$PY" -m src.er_selftrain score --model runs/E030-ce-st/model --country France --only-scored --base-ce runs/E029-ce \
+      --out runs/E030-ce-fr --batch 256
+  "$PY" -m src.er_selftrain score --model runs/E030-ce-st/model --country US India --uncertain 0.02 0.98 --only-scored \
+      --base-ce runs/E030-ce-fr --out runs/E030-ce --batch 256
+fi
+case "$FINAL_STACK" in
+  e030) FINAL_CE="runs/E015-ce runs/E020-ce $LLM_CE runs/E030-ce" ;;
+  e029) FINAL_CE="runs/E015-ce runs/E020-ce $LLM_CE runs/E029-ce" ;;
+  *)    FINAL_CE="runs/E015-ce runs/E020-ce $LLM_CE" ;;
+esac
+
+# ---------------------------------------------------------------------------------------------------------------------
+# 13. Final stage 2 + decisions + both TSVs, in ONE run.
 #     - features: stage-1 features + both cross-encoders + reranker + cluster (sibling) features + full-population
 #       competition features (margin over the candidate's best other S1) on 5 name similarities + v2-normalised
 #       similarities + label-free name rarity; competitor density on train thinned to test-like (--comp-keep 0.78)
 #     - LightGBM fit on fold-0 S1s outside dev (4 internal OOF groups); dev F0.5 printed; decision rule and threshold
 #       chosen on OOF (global threshold vs expected-F0.5, each S2/S3 record assigned to at most one S1)
-#     - final candidate set = stage-1 prob >= 0.2 OR E016 CE >= 0.01 (dev: 4.71 per S1, pair recall 0.9963); the
+#     - final candidate set = stage-1 prob >= 0.5 OR E016 CE >= 0.05 (dev: 3.83 per S1, pair recall 0.991); the
 #       model is fitted and applied on exactly these rows, so candidate_pairs.tsv is its inference set
 #     - --unseen-threshold 0.85 also writes output_unseen/: threshold 0.85 for S1 countries not present in train
 #       (derived from the data; nothing is hard-coded), everything else identical
 #     out: output/{matching_results,candidate_pairs}.tsv, output_unseen/, runs/E015/{stage2,predict}.json
 #     time: ~1.5 h CPU, peak ~50 GB RAM
 # ---------------------------------------------------------------------------------------------------------------------
-step "13. final stage 2 (E023) -> output/"
+step "13. final stage 2 ($FINAL_STACK) -> output/"
 "$PY" -m src.er_fullpass stage2 --exp E015 --views name addr both both_ft \
-    --ce-dir runs/E015-ce runs/E016-ce "$LLM_CE" --fit-folds 0 --tag E023 \
+    --ce-dir $FINAL_CE --fit-folds 0 --tag FINAL \
     --comp-cols cos_name name_ratio name_jw name_full_tset name_tsort --norm2 --comp-keep 0.78 \
-    --prune-eps 0.2 --prune-ce-dir runs/E016-ce --prune-ce 0.01 --unseen-threshold 0.85 \
-    --frames runs/frames/E023 --out output
+    --prune-eps 0.5 --prune-ce-dir runs/E016-ce --prune-ce 0.05 --unseen-threshold 0.85 \
+    --out output
 if [ "$FINAL_VARIANT" = unseen ]; then
   cp output_unseen/matching_results.tsv output_unseen/candidate_pairs.tsv output/
 fi
