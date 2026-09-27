@@ -125,7 +125,8 @@ def load_chunks(rd: Path, name: str, columns=None) -> list[pd.DataFrame]:
     return [pd.read_parquet(p, columns=columns) for p in sorted((rd / f"{name}_chunks").glob("*.parquet"))]
 
 
-def prune_rows(X: pd.DataFrame, split: str, eps: float, ce_dir: str = "", ce_eps: float = 0.0) -> pd.DataFrame:
+def prune_rows(X: pd.DataFrame, split: str, eps: float, ce_dir: str = "", ce_eps: float = 0.0,
+               unseen_ce_dir: str = "", unseen_ce: float = 0.0) -> pd.DataFrame:
     """The final model's candidate set (= candidate_pairs.tsv): keep a pair when stage 1 finds it plausible (prob >= eps)
     OR, with ce_dir, the cross-encoder does (score >= ce_eps). Features are built on the full stage-1 top-15 first, so
     every split sees identically computed features; only the rows the final model trains/predicts on are filtered.
@@ -144,6 +145,20 @@ def prune_rows(X: pd.DataFrame, split: str, eps: float, ce_dir: str = "", ce_eps
         if np.isnan(v).mean() > 0.001:
             raise ValueError(f"{ce_dir} has no score for {np.isnan(v).mean():.2%} of {split} stage-2 rows")
         keep |= np.nan_to_num(v, nan=0.0) >= ce_eps
+    if unseen_ce_dir and unseen_ce > 0:
+        # E037: for S1 countries absent from train, also keep pairs that a cross-encoder adapted to that country scores
+        # >= unseen_ce (the filter CE above never saw its text). Countries come from the data; nothing is hard-coded.
+        from src.er_data import load
+        seen = set(pd.read_parquet(cache_dir() / "train_s1.parquet", columns=["country"]).country.unique())
+        ctry = load(split, with_gt=False)[0].set_index("entity_id").country
+        unseen = ~ctry.reindex(X.s1_id).isin(seen).to_numpy()
+        if unseen.any():
+            ce = pd.concat([pd.read_parquet(f, columns=["s1_id", "cand_id", "ce_score"])
+                            for f in sorted((Path(unseen_ce_dir) / f"{split}_ce").glob("*.parquet"))], ignore_index=True)
+            v = X[["s1_id", "cand_id"]].merge(ce, on=["s1_id", "cand_id"], how="left").ce_score.to_numpy()
+            add = unseen & ~keep & (np.nan_to_num(v, nan=0.0) >= unseen_ce)
+            log(f"{split}: unseen-country rescue adds {int(add.sum()):,} pairs ({add.sum() / max(unseen.sum(), 1):.4f} of their rows)")
+            keep |= add
     log(f"{split}: candidate set {keep.sum() / X.s1_id.nunique():.2f}/S1 (was {len(X) / X.s1_id.nunique():.2f})")
     return X[keep].reset_index(drop=True)
 
@@ -358,7 +373,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     X = cached_frame(a, "train", lambda: stage2_frames(d, with_ce(load_chunks(rd, "train"), a.ce_dir, "train"),
                                                        fit_ids | dev_ids, tuple(a.comp_cols), a.norm2, a.comp_keep))
     log(f"stage-2 frame {X.shape} [{time.time() - t0:.0f}s]")
-    X = prune_rows(X, "train", a.prune_eps, a.prune_ce_dir, a.prune_ce)
+    X = prune_rows(X, "train", a.prune_eps, a.prune_ce_dir, a.prune_ce, a.prune_unseen_ce_dir, a.prune_unseen_ce)
     is_dev = X.s1_id.isin(dev_ids).to_numpy()
     Xtr, Xdev = X[~is_dev].reset_index(drop=True), X[is_dev].reset_index(drop=True)
     y_tr, y_dev = d.truth(sorted(fit_ids)), d.truth(sorted(dev_ids))
@@ -418,7 +433,7 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     te = Split("test", a.model, a.views)
     Xt = cached_frame(a, "test", lambda: stage2_frames(te, with_ce(load_chunks(rd, "test"), a.ce_dir, "test"), None,
                                                        tuple(a.comp_cols), a.norm2))
-    Xt = prune_rows(Xt, "test", a.prune_eps, a.prune_ce_dir, a.prune_ce)
+    Xt = prune_rows(Xt, "test", a.prune_eps, a.prune_ce_dir, a.prune_ce, a.prune_unseen_ce_dir, a.prune_unseen_ce)
     ft = Xt.drop(columns=["prob"])
     ft["s1_prob"] = Xt.prob.to_numpy()
     probs = Xt[["s1_id", "cand_id"]].assign(prob=predict(models, ft).astype(np.float32))
@@ -485,6 +500,8 @@ def main() -> None:
                     help="final candidate set: keep pairs with stage-1 prob >= eps (e.g. 0.003 -> ~6.4 per S1)")
     s2.add_argument("--prune-ce-dir", default="", help="CE scores for the OR-rule candidate filter (e.g. runs/E016-ce)")
     s2.add_argument("--prune-ce", type=float, default=0.0, help="keep a pair if stage-1 prob >= --prune-eps OR CE >= this")
+    s2.add_argument("--prune-unseen-ce-dir", default="", help="E037: CE adapted to countries absent from train (e.g. runs/E030-ce)")
+    s2.add_argument("--prune-unseen-ce", type=float, default=0.0, help="E037: also keep unseen-country pairs with that CE >= this")
     s2.add_argument("--comp-keep", type=float, default=1.0,
                     help="E025: fraction of non-fit/dev train S1s kept as competitors (test-like density, e.g. 0.78)")
     s2.add_argument("--norm2", action="store_true", help="E024: add v2-normalised name/address features (src/er_norm2.py)")
