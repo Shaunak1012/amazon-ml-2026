@@ -293,7 +293,7 @@ esac
 #       similarities + label-free name rarity; competitor density on train thinned to test-like (--comp-keep 0.78)
 #     - LightGBM fit on fold-0 S1s outside dev (4 internal OOF groups); dev F0.5 printed; decision rule and threshold
 #       chosen on OOF (global threshold vs expected-F0.5, each S2/S3 record assigned to at most one S1)
-#     - final candidate set = stage-1 prob >= 0.2 OR E016 CE >= 0.01 (dev: 4.71 per S1, pair recall 0.9963); the
+#     - final candidate set = stage-1 prob >= 0.5 OR E016 CE >= 0.05 (dev: 3.83 per S1, pair recall 0.991); the
 #       model is fitted and applied on exactly these rows, so candidate_pairs.tsv is its inference set
 #     - --unseen-threshold 0.85 also writes output_unseen/: threshold 0.85 for S1 countries not present in train
 #       (derived from the data; nothing is hard-coded), everything else identical
@@ -304,7 +304,7 @@ step "13. final stage 2 ($FINAL_STACK) -> output/"
 "$PY" -m src.er_fullpass stage2 --exp E015 --views name addr both both_ft \
     --ce-dir $FINAL_CE --fit-folds 0 --tag FINAL \
     --comp-cols cos_name name_ratio name_jw name_full_tset name_tsort --norm2 --comp-keep 0.78 \
-    --prune-eps 0.2 --prune-ce-dir runs/E016-ce --prune-ce 0.01 --unseen-threshold 0.85 \
+    --prune-eps 0.5 --prune-ce-dir runs/E016-ce --prune-ce 0.05 --unseen-threshold 0.85 \
     --out output
 if [ "$FINAL_VARIANT" = unseen ]; then
   cp output_unseen/matching_results.tsv output_unseen/candidate_pairs.tsv output/
