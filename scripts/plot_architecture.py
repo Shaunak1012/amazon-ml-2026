@@ -113,6 +113,7 @@ for idx, title, lines in ((3, "France (unseen in train)",
                           (5, "Validation",
                            ["Dev: 100k fold-0 S1s,", "scored at test-like density", "Every learned model: folds 1-4",
                             "Public-LB probes for France", "(threshold 0.55 / 0.75 / 0.90)",
+                            "France: manual audit +", "drift guard on model updates",
                             "Validators: ours + organisers'"])):
     box(SX, centre[idx], SW, 0, "side", title, lines)
     arrow(SX - SW / 2 - 0.6, centre[idx], CX + W / 2 + 0.6, centre[idx], dashed=True)
