@@ -135,6 +135,9 @@ def main() -> int:
             z.write(arch, f"{CODE_PREFIX}/docs/architecture.png")
             doc_bytes = doc_bytes.replace(b"](architecture.png)", f"]({CODE_PREFIX}/docs/architecture.png)".encode())
         z.writestr(doc_name, doc_bytes)
+        summary = Path(a.doc).parent / "Approach_Summary.md"      # the guidelines' 1-2 page approach document
+        if summary.exists():
+            z.write(summary, f"{CODE_PREFIX}/docs/Approach_Summary.md")
         info = [f"ref: {a.ref}", f"commit: {git('rev-parse', f'{a.ref}^{{commit}}')}",
                 f"built: {datetime.now(timezone.utc).isoformat()}"]
         z.writestr(f"{CODE_PREFIX}/BUILD_INFO.txt", "\n".join(info) + "\n")
