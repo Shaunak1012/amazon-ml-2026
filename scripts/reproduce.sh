@@ -44,7 +44,7 @@ step() { echo; echo "=== [$(date +%H:%M:%S)] $*"; }
   echo "Put the organisers' files at $DATA/dataset/{train,test}/*.tsv first (see README.md)."; exit 1; }
 
 # ---------------------------------------------------------------------------------------------------------------------
-# 0. Base models into the local Hugging Face cache (the ONLY network access; ~9 GB). Afterwards the pipeline runs
+# 0. Base models into the local Hugging Face cache (the ONLY network access; ~11 GB). Afterwards the pipeline runs
 #    offline. Revisions are the snapshots we used; a mismatch is reported (the models are then still usable).
 #    in: -   out: ~/.cache/huggingface/hub   time: ~10 min (bandwidth-bound)
 # ---------------------------------------------------------------------------------------------------------------------
@@ -56,6 +56,7 @@ from huggingface_hub import snapshot_download
 PINNED = {  # repo -> snapshot (commit) used for the competition run
     "intfloat/multilingual-e5-small": "614241f622f53c4eeff9890bdc4f31cfecc418b3",   # MIT, 118M
     "intfloat/multilingual-e5-base": "d128750597153bb5987e10b1c3493a34e5a4502a",    # MIT, 278M
+    "intfloat/multilingual-e5-large": "3d7cfbdacd47fdda877c5cd8a79fbcc4f2a574f3",   # MIT, 560M
     "Qwen/Qwen3-4B": "1cfa9a7208912126459214e8b04321603b3df60c",                    # Apache-2.0, 4.0B
 }
 ALLOW = ["*.json", "*.safetensors", "*.txt", "*.model", "tokenizer*", "sentencepiece*"]

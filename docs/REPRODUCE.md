@@ -3,7 +3,7 @@
 Team **SHSHSHSH**, Amazon ML Challenge 2026.
 This file is `code/business_entity_resolution/README.md` in the submission zip. It regenerates
 `output/matching_results.tsv` and `output/candidate_pairs.tsv` from the organisers' train/test files, using only
-the code in this folder, the pinned packages in `requirements.txt` and three open base models (MIT / Apache-2.0).
+the code in this folder, the pinned packages in `requirements.txt` and four open base models (MIT / Apache-2.0).
 
 ## Overview
 
@@ -29,7 +29,7 @@ free disk (embedding matrices ~140 GB, stage-1 chunks and caches ~25 GB).
 
 | # | Step | Module | Device | Time |
 |---|---|---|---|---|
-| 0 | Download 3 base models (~9 GB), then offline | `huggingface_hub` | net | ~10 min |
+| 0 | Download 4 base models (~11 GB), then offline | `huggingface_hub` | net | ~10 min |
 | 1 | TSV to parquet cache, row counts checked | `src.er_data` | CPU | ~1 min |
 | 2 | Normalisation v1 + v2 | `src.er_normalize`, `src.er_norm2` | CPU | ~3 min |
 | 3 | Folds (5 x S1, seed 42) + 100k dev S1 | `scripts/make_folds.py` | CPU | <1 min |
@@ -143,6 +143,7 @@ floating-point summation order. The cross-encoder A training chunks come from E0
 |---|---|---|---|---|
 | intfloat/multilingual-e5-small | MIT | 118M | retrieval embeddings (3 views); base of the bi-encoder (E014) and cross-encoder A (E008) | fine-tuned only on the provided train data |
 | intfloat/multilingual-e5-base | MIT | 278M | cross-encoder B (E016) | provided train data only |
+| intfloat/multilingual-e5-large | MIT | 560M | cross-encoder C (E027/E029/E030) and owner model OW04 | provided train data only (+ self-training on test inputs, allowed by the organisers) |
 | Qwen/Qwen3-4B | Apache-2.0 | 4.0B | LoRA Yes/No reranker (E022) | provided train data only (LoRA adapters) |
 | LightGBM | MIT | n/a (trees) | stage-1 and stage-2 pair classifiers | provided train data |
 | rapidfuzz, scikit-learn, pandas, numpy, pyarrow | MIT / BSD | n/a | string similarity, data handling | n/a |
