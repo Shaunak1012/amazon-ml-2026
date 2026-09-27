@@ -154,3 +154,18 @@ def test_cand_mask_topk_and_floor():
     assert cand_mask(df, 2, 0.0).tolist() == [True, False, True, True, True]
     assert cand_mask(df, 15, 0.01).tolist() == [True, True, True, False, True]
     assert cand_mask(df, 1, 0.5).tolist() == [True, False, False, False, False]   # b ends with no candidates
+
+
+def test_density_mask_keeps_always_and_is_deterministic():
+    """Copy of Shaunak's density_mask: fit/dev S1s always kept, others kept at ~keep_frac, same draw every time."""
+    from src.er_frames2 import density_mask
+
+    allp = pd.DataFrame({"s1_id": [f"S1-{i // 3}" for i in range(3000)], "cand_id": [f"S2-{i}" for i in range(3000)]})
+    m1 = density_mask(allp, {"S1-0", "S1-1"}, 0.78)
+    m2 = density_mask(allp, {"S1-0", "S1-1"}, 0.78)
+    assert (m1 == m2).all() and m1[:6].all()
+    kept = allp.loc[m1, "s1_id"].nunique() / allp.s1_id.nunique()
+    assert 0.72 < kept < 0.84
+    assert density_mask(allp, None, 1.0).all()
+    # all rows of one S1 share its decision
+    assert allp.assign(k=m1).groupby("s1_id").k.nunique().max() == 1

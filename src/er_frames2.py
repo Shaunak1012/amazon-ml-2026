@@ -81,6 +81,29 @@ def cand_mask(df: pd.DataFrame, topk: int, min_prob: float, ce: np.ndarray | Non
     return (rank <= topk) & ok
 
 
+def density_mask(allp: pd.DataFrame, always: set | None, keep_frac: float, seed: int = 11) -> np.ndarray:
+    """Copy of Shaunak's er_fullpass.density_mask (origin/shaunak, E025): rows of allp whose S1 stays in the competitor
+    population = every S1 in `always` (fit + dev) plus a random keep_frac of the others (one draw per S1, in the order
+    of allp.s1_id.unique(), seed 11)."""
+    if keep_frac >= 1.0:
+        return np.ones(len(allp), bool)
+    ids = pd.Index(allp.s1_id.unique())
+    keep = pd.Series(np.random.default_rng(seed).random(len(ids)) < keep_frac, index=ids)
+    if always:
+        keep[keep.index.isin(list(always))] = True
+    return keep.reindex(allp.s1_id).to_numpy()
+
+
+def recompute_comp(X: pd.DataFrame, P: pd.DataFrame, comp_cols: tuple[str, ...]) -> pd.DataFrame:
+    """Replace X's record-level competition features by ones computed over population P (prob + comp_cols)."""
+    comp = competition_features(P)
+    for col in comp_cols:
+        comp.update(competition_features(P, col))
+    C = P[["s1_id", "cand_id"]].assign(**comp)
+    X = X.drop(columns=[c for c in comp if c in X.columns])
+    return X.merge(C, on=["s1_id", "cand_id"], how="left", validate="one_to_one")
+
+
 def repopulate(X: pd.DataFrame, allp: pd.DataFrame, nm: SimpleNamespace, drop: set,
                comp_cols: tuple[str, ...], force: bool = False) -> pd.DataFrame:
     """Recompute competition + rarity columns of X's rows in the population without the `drop` S1s
@@ -116,6 +139,10 @@ def main() -> None:
     ap.add_argument("--fit-without-dropped", action="store_true",
                     help="eval mode only: also remove the dropped S1s' fit rows (same fit size as 'both', no recompute)")
     ap.add_argument("--cand-topk", type=int, default=15, help="keep the S1's top-k stage-1 candidates (frames hold 15)")
+    ap.add_argument("--prune-post", action="store_true",
+                    help="apply the candidate rule AFTER population features (Shaunak's E023 prune_rows semantics)")
+    ap.add_argument("--comp-keep", type=float, default=1.0,
+                    help="Shaunak's E025 density regime: keep fit+dev S1s + this share of the others as competitors")
     ap.add_argument("--cand-min-prob", type=float, default=0.0, help="and only candidates with stage-1 prob >= this")
     ap.add_argument("--cand-ce-col", default="", help="OR-rule: also keep rows whose CE column (e.g. ce_score_2) >= --cand-ce-min")
     ap.add_argument("--cand-ce-min", type=float, default=1.1)
@@ -136,7 +163,20 @@ def main() -> None:
     frame_ids = pd.Index(X.s1_id.unique())            # every fit/dev S1, fixed before any pruning
     pruned = a.cand_topk < 15 or a.cand_min_prob > 0
     allp = None
-    if pruned:
+    if a.comp_keep < 1.0:
+        # Shaunak's E025/E023 density regime (logic copied, not imported): all fit + dev S1s plus a random comp_keep of
+        # the other train S1s (seed 11, drawn over the chunk-order S1 list) are the competitor population; only the
+        # competition features are recomputed on it (name rarity is not, as in er_fullpass.stage2_frames)
+        allp0 = pd.read_parquet(a.train_min, columns=["s1_id", "cand_id", "prob", *a.comp_cols])
+        P = allp0[density_mask(allp0, set(frame_ids), a.comp_keep)].reset_index(drop=True)
+        X = recompute_comp(X, P, tuple(a.comp_cols))
+        log(f"density: comp-keep {a.comp_keep}, competitor rows {len(P):,} of {len(allp0):,}")
+        del allp0, P
+    if pruned and a.prune_post:
+        # E023 prune_rows semantics: drop rows AFTER the population features were built on the full top-15 population
+        ce_x = X[a.cand_ce_col].to_numpy() if a.cand_ce_col else None
+        X = X[cand_mask(X, a.cand_topk, a.cand_min_prob, ce_x, a.cand_ce_min)].reset_index(drop=True)
+    if pruned and not a.prune_post:
         # candidate-set pruning by stage-1 prob: the pruned list is what stage 2 (the final model) runs on, i.e. the
         # candidate_pairs.tsv; competition features are recomputed over the pruned population
         ce_x = X[a.cand_ce_col].to_numpy() if a.cand_ce_col else None
@@ -166,12 +206,13 @@ def main() -> None:
     Xtr = X[~is_dev & ~X.s1_id.isin(fit_excl).to_numpy()].reset_index(drop=True)
     Xdev = X[is_dev & ~X.s1_id.isin(dev_drop).to_numpy()].reset_index(drop=True)
     del X
-    if drop or pruned:
+    pre = pruned and not a.prune_post
+    if drop or pre:
         if allp is None:
             allp = pd.read_parquet(a.train_min, columns=["s1_id", "cand_id", "prob", *a.comp_cols])
         nm = names("train")
-        Xtr = repopulate(Xtr, allp, nm, drop_fit, tuple(a.comp_cols), force=pruned)
-        Xdev = repopulate(Xdev, allp, nm, dev_drop, tuple(a.comp_cols), force=pruned)
+        Xtr = repopulate(Xtr, allp, nm, drop_fit, tuple(a.comp_cols), force=pre)
+        Xdev = repopulate(Xdev, allp, nm, dev_drop, tuple(a.comp_cols), force=pre)
         del allp
     log(f"frames: fit {Xtr.shape}, dev {Xdev.shape}, dropped {len(drop):,} S1 ({a.drop_in}) [{time.time() - t0:.0f}s]")
 
@@ -187,7 +228,9 @@ def main() -> None:
                   "s1_with_no_cands_dev": 1 - Xdev.s1_id.nunique() / len(dev_ids)}
     rule1, t1, _ = choose_decision(Xtr[["s1_id", "cand_id", "prob"]], y_tr)
     res = {"tag": a.tag, "drop_s1_frac": a.drop_s1_frac, "drop_in": a.drop_in, "n_fit": len(fit_ids),
-           "n_dev": len(dev_ids), "cand_topk": a.cand_topk, "cand_min_prob": a.cand_min_prob, **cand_stats,
+           "n_dev": len(dev_ids), "cand_topk": a.cand_topk, "cand_min_prob": a.cand_min_prob, "cand_ce_col": a.cand_ce_col,
+           "cand_ce_min": a.cand_ce_min, "prune_post": a.prune_post, "comp_keep": a.comp_keep,
+           "extra_feats": a.extra_feats, "drop_cols": a.drop_cols, **cand_stats,
            "stage1_dev_f05": er_fbeta_macro(y_dev, apply_decision(Xdev[["s1_id", "cand_id", "prob"]], rule1, t1))}
     feat = Xtr.drop(columns=["prob"])
     feat["s1_prob"] = Xtr.prob.to_numpy()
@@ -218,7 +261,11 @@ def main() -> None:
         return
     from src.er_submission import write_outputs
     Xt = add_extra(pd.read_parquet(a.test_frame or Path(a.frames) / "test_frame.parquet"), a.extra_feats, "test").drop(columns=a.drop_cols, errors="ignore")
-    if pruned:
+    if pruned and a.prune_post:
+        # E023 semantics on test: filter rows after features (test keeps its full, real population)
+        ce_t = Xt[a.cand_ce_col].to_numpy() if a.cand_ce_col else None
+        Xt = Xt[cand_mask(Xt, a.cand_topk, a.cand_min_prob, ce_t, a.cand_ce_min)].reset_index(drop=True)
+    elif pruned:
         # the SAME candidate rule on test; population features recomputed on the pruned test set, so
         # candidate_pairs.tsv is exactly what the final model scores (organiser rule, 26 Sep update)
         ce_t = Xt[a.cand_ce_col].to_numpy() if a.cand_ce_col else None
