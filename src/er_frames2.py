@@ -62,6 +62,8 @@ def add_extra(X: pd.DataFrame, dirs: list[str], split: str) -> pd.DataFrame:
         # explicit names (an owner dir also holds <split>_groups.parquet): <split>_feats.parquet or <split>_owner.parquet
         f = next(p for p in (Path(d) / f"{split}_feats.parquet", Path(d) / f"{split}_owner.parquet") if p.exists())
         E = pd.read_parquet(f)
+        # a second model of the same kind (e.g. OW03 next to OW04) gets its columns suffixed with the dir name
+        E = E.rename(columns={c: f"{c}_{Path(d).name}" for c in E.columns if c in X.columns and c not in ("s1_id", "cand_id")})
         n = len(X)
         X = X.merge(E, on=["s1_id", "cand_id"], how="left", validate="one_to_one")
         assert len(X) == n
@@ -171,6 +173,7 @@ def main() -> None:
     ap.add_argument("--rounds", type=int, default=1000)
     ap.add_argument("--lgb-params", default="")
     ap.add_argument("--tag", required=True)
+    ap.add_argument("--group-seed", type=int, default=0, help="seed of the 4 random OOF S1 groups (0 = er_fullpass)")
     ap.add_argument("--out", default="")
     ap.add_argument("--refit-check", choices=["A", "B", "final"], default="",
                     help="RF01 (src/er_refit.py): A/B = train with the other dev half added, score on this half; "
@@ -273,7 +276,7 @@ def main() -> None:
     groups = folds.fold.reindex(Xtr.s1_id).to_numpy()
     if len(np.unique(groups)) < 2:                     # same internal grouping as er_fullpass stage 2
         u = pd.Index(Xtr.s1_id.unique())
-        groups = pd.Series(np.random.default_rng(0).integers(0, 4, len(u)), index=u).reindex(Xtr.s1_id).to_numpy()
+        groups = pd.Series(np.random.default_rng(a.group_seed).integers(0, 4, len(u)), index=u).reindex(Xtr.s1_id).to_numpy()
     params = lgb_params(a)
     oof, models = train_oof(feat, Xtr.y.to_numpy().astype(int), groups, params, num_boost_round=a.rounds,
                             early_stopping=50)
@@ -284,6 +287,8 @@ def main() -> None:
     p_dev.assign(y=Xdev.y.to_numpy()).to_parquet(rd / "dev_probs.parquet", index=False)
     rule, t, f = choose_decision(p_tr, y_tr)
     pred = apply_decision(p_dev, rule, t)
+    from src.er_refit import per_s1
+    per_s1(pred, y_dev).rename("f05").to_frame().to_parquet(rd / "dev_scores.parquet")    # for paired comparisons
     ctry = names("train").left.country
     res.update({"stage2_rule": rule, "stage2_t": t, "stage2_oof": f, "dev_f05": er_fbeta_macro(y_dev, pred),
                 "dev_by_country": {c: er_fbeta_macro({k: v for k, v in y_dev.items() if ctry[k] == c}, pred)
