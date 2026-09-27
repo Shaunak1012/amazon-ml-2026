@@ -3,6 +3,14 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-27 17:40 IST: OW34 - OW03 next to OW04 adds nothing (dropped)
+E034-like regime (E023b density, 3.83 filter), 100k dev S1, 2 partition seeds, paired per S1 (job `ow34.sh`):
+none 0.99032/0.99036; OW03 alone +0.00072, OW04 alone +0.00076, both +0.00076 (seed-averaged; each CI clear of 0).
+**Both − OW04 = −0.00000** (CI ±0.0001; g0 172 better / 172 worse), both halves and both seeds. The two owner models
+are near-duplicates on dev rows: own_p Pearson 0.976, own_margin 0.975, own_p ≥ 0.5 agreement 96.8%; the combined
+model splits the owner gain between them (OW03 cols 3.1% of gain, OW04 2.3%) without adding signal. Seed noise
+±0.00006. Also E035 (E034 + CE03) came out flat on Shaunak's side (0.99153 vs 0.99154).
+
 ## 2026-09-27 16:50 IST: team sync + RF01 (train stage 2 on the dev S1s too?) queued
 - Shaunak: sub-16 = E033 LB **0.987692**; E034 = E033 + our OW04 owner features: dev **0.99154** (+0.00055 vs E033),
   OOF 0.99142, sub-17 LB **0.98793** (new best, +0.00024). E035 (E034 + CE03) chained, gated vs E034.
