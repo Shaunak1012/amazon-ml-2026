@@ -1,6 +1,6 @@
 # Amazon ML Challenge 2026: business entity resolution (team SHSHSHSH)
 
-Team: Shaunak A. Rai, Shaswat Solanki, Shivam Anand, Shreyas Sreenivas. 72-hour hackathon, 25-27 Sep 2026.
+Team SHSHSHSH. 72-hour hackathon, 25-27 Sep 2026.
 
 **Task:** for every Source-1 business record, find its matching records in Sources 2 and 3 (name, address, country;
 US and India in train, plus France only in test). Outputs: `matching_results.tsv`, scored by macro F0.5 per S1 entity,
