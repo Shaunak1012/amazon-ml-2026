@@ -103,3 +103,9 @@ Decisions:
 - **Alternatives:** latest wheels (blocked by Smart App Control); turning SAC off. That is reversible on this build
   (post-April-2026 updates), so it's the fallback if a needed package is ever blocked.
 - **Why:** get a working CUDA stack without changing security settings.
+
+## 2026-09-27 11:15 IST: self-training back in (user decision)
+- **Chosen:** use the self-trained CE scores on test (E020-ce; pseudo-labels from our own model on provided test inputs, no labels, no external data) for sub-15 and the final.
+- **Why:** measured +0.0005 LB (sub-10 vs sub-11); US/India are saturated at ~0.991 dev, France is the gap, and top-50 needs ~0.989.
+- **Risk accepted:** organisers never confirmed test-time self-training; the Fair Play line says "using only the provided training data".
+- **Unchanged:** candidate_pairs.tsv is byte-identical to sub-12 (4.743/S1, recall 0.99628 dev / 0.99621 fit, RR 99.999952%).
