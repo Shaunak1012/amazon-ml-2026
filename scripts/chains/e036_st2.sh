@@ -12,17 +12,16 @@ PY=.venv/Scripts/python.exe
 ok() { grep -q '"returncode": 0' "runs/$1/exit.json" 2>/dev/null; }
 stage2_running() { powershell.exe -NoProfile -Command "@(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { \$_.CommandLine -match 'er_fullpass stage2' }).Count" | tr -d '\r'; }
 echo "E036 train start $(date +%H:%M)"
-$PY -m monitor.launch --run E036-selftrain --quiet -- $PY -m src.er_selftrain train \
-    --probs runs/E015/sub_E034_ow04/test_probs_stage2.parquet --country France US India --base runs/E030-ce-st/model \
-    --out runs/E036-ce-st2/model --n-pos 150000 --n-neg 200000 --batch 32 --lr 1e-5
-ok E036-selftrain || { echo "CHAIN STOP: E036 self-train failed"; exit 1; }
+# France-only (27 Sep 16:57): a 3-country mix gave France only ~15% of the pseudo-labels; US/India self-training
+# measured no gain (E031), so the whole budget goes to France (E018 used 600k French pseudo-labels on e5-base).
+$PY -m monitor.launch --run E036f-selftrain --quiet -- $PY -m src.er_selftrain train \
+    --probs runs/E015/sub_E034_ow04/test_probs_stage2.parquet --country France --base runs/E030-ce-st/model \
+    --out runs/E036f-ce-st/model --n-pos 200000 --n-neg 250000 --batch 32 --lr 1e-5
+ok E036f-selftrain || { echo "CHAIN STOP: E036 self-train failed"; exit 1; }
 echo "E036 train ok $(date +%H:%M)"
-$PY -m monitor.launch --run E036-score-fr --quiet -- $PY -m src.er_selftrain score --model runs/E036-ce-st2/model \
-    --country France --only-scored --base-ce runs/E030-ce --out runs/E036-ce-fr --batch 256
-ok E036-score-fr || { echo "CHAIN STOP: E036 France scoring failed"; exit 1; }
-$PY -m monitor.launch --run E036-score-usin --quiet -- $PY -m src.er_selftrain score --model runs/E036-ce-st2/model \
-    --country US India --uncertain 0.02 0.98 --only-scored --base-ce runs/E036-ce-fr --out runs/E036-ce --batch 256
-ok E036-score-usin || { echo "CHAIN STOP: E036 US/India scoring failed"; exit 1; }
+$PY -m monitor.launch --run E036f-score-fr --quiet -- $PY -m src.er_selftrain score --model runs/E036f-ce-st/model \
+    --country France --only-scored --base-ce runs/E030-ce --out runs/E036-ce --batch 256
+ok E036f-score-fr || { echo "CHAIN STOP: E036 France scoring failed"; exit 1; }
 echo "E036 scoring ok $(date +%H:%M)"
 until grep -q "E035 DONE\|CHAIN STOP" runs/E035-chain.log 2>/dev/null; do sleep 30; done
 until [ "$(stage2_running)" = 0 ]; do sleep 30; done
