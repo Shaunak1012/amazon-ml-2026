@@ -1,90 +1,286 @@
 # ML Challenge 2026: Business Entity Resolution Solution Template
 
 **Team Name:** SHSHSHSH  
-**Team Members:** [List all team members]  
-**Submission Date:** [Date]
+**Team Members:** Shaunak A. Rai, Shaswat Solanki, Shivam Anand, Shreyas Sreenivas  
+**Submission Date:** 27 September 2026
+
+*Sections 1-6 are the core write-up (about two pages). The appendices hold the detail: experiment log, features,
+hyperparameters and compute, error analysis, models and licences, submission history, and the code map. Numbers are
+labelled **dev** (100k held-out train S1s that no model saw), **OOF** (out-of-fold on the stage-2 fit pool) or
+**LB** (public leaderboard).*
 
 ---
 
 ## 1. Executive Summary
-*Living draft, updated with every leaderboard submission. Current submission: see the version history table below.*
-
-Planned approach: a retrieve → score → decide entity-resolution pipeline. Normalisation with transliteration of Indic scripts; blocking within country using multilingual embeddings of name and address views, character n-grams and exact keys; a LightGBM pair scorer on string, number and context features; and a decision layer tuned for per-entity F0.5 with a one-Source-1-per-record assignment constraint.
+We use a cascade that starts with fast, high-recall steps and ends with precise, expensive ones. First, same-country
+dense retrieval over four multilingual-e5 views, one of them a bi-encoder we fine-tuned on train matches. Then a
+LightGBM filter, two fine-tuned cross-encoders, and a Qwen3-4B LoRA reranker that sees the *competing* S1s. Last, a
+stage-2 LightGBM and an F0.5-tuned decision layer that gives each S2/S3 record to at most one S1. The final model runs
+on **4.71 candidates per S1 at 99.63% pair recall (dev)** and scores **{{FINAL: E023 dev F0.5 at test-like density}}
+dev / {{FINAL: E023 public LB}} LB**. The main idea is that features must mean the same thing on train, dev and test:
+cross-S1 features are computed over the full S1 population at test-like competitor density, and every learned score
+is out-of-sample on the S1s used to fit and validate the final model.
 
 ---
 
 ## 2. Methodology
 
 ### 2.1 Problem Analysis
-- Train: 2,206,821 S1 / 5,034,616 S2 / 5,285,603 S3 records; 7,638,365 match pairs; 5.6% of S1 have no match; mean 3.46 matches per S1.
-- No S2/S3 record matches more than one S1; no match crosses countries.
-- ~24% of India S2/S3 names are in Indic scripts (Devanagari, Kannada, Telugu, Gujarati); some matched names are replaced by unrelated strings while the address is intact, so addresses are a primary signal.
-- Test adds France (15% of S1, unseen in train) and has more S2+S3 records per S1 (5.75 vs 4.68).
+- **Scale:** train has 2.21M S1, 5.03M S2 and 5.29M S3 records, with 7.64M matched pairs. Test has 1.73M S1 and
+  9.97M S2+S3 records. All-pairs comparison is impossible.
+- **Structure (train):** 5.6% of S1s are singletons. There are 3.46 matches per S1 on average, 0 records matched to
+  more than one S1, 0 cross-country matches, and ~26% of S2/S3 records match no S1. We turned these facts into two
+  design rules: a hard one-S1-per-record constraint, and blocking within the country string.
+- **Noise:** ~24% of Indian S2/S3 names are in Indic scripts (Devanagari, Kannada, Telugu, Gujarati). Some matched
+  names are replaced by unrelated strings while the address survives, so **the address is a first-class signal**.
+  Addresses can be empty or contain literal `null`. We also see leetspeak, moved legal suffixes, "F/K/A" names and
+  reordered address parts. 34% of test S1 names occur verbatim as train S1 names, so a name alone does not identify
+  a business.
+- **Shift:** France (15% of test S1s) never appears in train. Test has 5.75 S2+S3 records per S1 against 4.68 in
+  train. In test each record is retrieved by 2.67 (US) to 2.84 (France) S1s, against 3.27 in train. This matters for
+  every feature that compares a record's S1s.
 
 ### 2.2 Solution Strategy
-*Outline your high-level approach.*
+**Approach Type:** Hybrid: blocking (dense retrieval), a cascade of classifiers (LightGBM, fine-tuned transformer
+cross-encoders, an LLM reranker) and an explicit F0.5 decision layer.  
+**Core Innovation:** (1) A **fine-tuned bi-encoder retrieval view** that recovered 90.7% of the true pairs the
+off-the-shelf views missed. (2) **Full-population, density-matched competition features.** Every train and test S1 is
+scored, so "how well does this record match its *other* S1s" is computed the same way everywhere. Train is thinned
+to test-like density. (3) An **LLM reranker whose prompt lists the competing S1s**, which targets the dominant
+remaining error: look-alike names with empty addresses.
 
-**Approach Type:** [Blocking + Classifier / End-to-End / Graph-Based / Hybrid, etc]  
-**Core Innovation:** [Brief description of your main technical contribution]
+### 2.3 Validation Design
+- 5 random folds over train S1s (seed 42). The **bi-encoder, cross-encoder B and the LLM train on folds 1-4**, and
+  cross-encoder A on folds 1-2. None of them sees fold 0.
+- **Stage 1 and stage 2 are fitted on fold 0 minus dev** (341k S1, 4 internal OOF groups). Dev is a fixed 100k-S1
+  sample of fold 0, used only for scoring. So every neural score is out-of-sample on the fit pool and on dev, exactly
+  as on test.
+- Retrieval uses the **full** train S2/S3 pool (same size as test). Stage 1 scores **all** train S1s (out-of-fold) and
+  all test S1s, so cross-S1 features see the full population. An early check that scored only sampled S1s (E005)
+  gave a biased estimate: 31% of records were contested there, against 87% on test.
+- **Test-like density:** from E025 on, the population used for competition features is thinned (78% of never-fitted
+  S1s kept). We report dev at that density, the fairest dev to compare with the LB.
+- France has no dev signal. Public-LB probes measured it (Appendix B.4). We tracked the dev→LB gap on every upload:
+  0.0087 → 0.0065 → 0.0054.
 
 ---
 
 ## 3. Candidate Generation (Blocking)
-*Describe how you reduced the comparison space to a manageable candidate set.*
 
-- **Blocking keys used:** [e.g., PIN code, phonetic name encoding, TF-IDF, etc.]
-- **Candidate pairs generated:** [total]
-- **How you ensured true matches were not lost:**
+- **Blocking keys used:** equality of the `country` string (a partition, no country list is hard-coded), then exact
+  GPU top-10 cosine search per view and per source (S2, S3). There are four views:
+  multilingual-e5-small on *name*, *address* and *name + address* (raw text), and the same model **fine-tuned as a
+  bi-encoder** (in-batch InfoNCE, same-country batches, 1.5M train pairs of folds 1-4) on name + address.
+  The union of all hits is the retrieved set. A stage-1 LightGBM on 32 cheap features (embedding cosines, rapidfuzz
+  name/address similarities, number/postcode agreement, rank context) then filters it.
+- **Candidate pairs generated:** 4.71 per S1 on dev; {{FINAL: test candidates per S1}} per S1 and
+  {{FINAL: total test candidate pairs}} pairs on test. The reduction ratio against all S1 × (S2 ∪ S3) pairs is about
+  99.9999% ({{FINAL: exact test reduction ratio}}).
+
+| Stage (dev, 100k S1) | Rule | Candidates / S1 | Pair recall |
+|---|---|---:|---:|
+| 3 off-the-shelf views (E003-E013) | top-10 per view per source | ~50 | 0.9740 |
+| A. Dense retrieval, 4 views (E015) | + fine-tuned view | ~62 | 0.9976 |
+| B. Stage-1 LightGBM | top-15 by stage-1 prob | 15 | 0.9974 |
+| **C. Final set = `candidate_pairs.tsv`** | stage-1 prob ≥ 0.2 **or** cross-encoder B ≥ 0.01 | **4.71** | **0.9963** |
+
+- **How we ensured true matches were not lost:** we measured recall on dev at every stage before choosing a cut-off.
+  Error analysis of E010 showed that 51% of the remaining loss was pairs never retrieved (India 3x worse than US), so
+  we trained the bi-encoder view (+0.0054 dev F0.5). Stage C is an OR rule, so a pair the cheap model doubts survives
+  when the cross-encoder likes it. The final set still has a **theoretical ceiling of 0.99892 dev F0.5** (oracle
+  decisions on these candidates), far above our score, so blocking is no longer the bottleneck. The stage-2 model is
+  fitted and applied on exactly the stage-C rows. Its context features (siblings, competitors) are computed from the
+  stage-B top-15 lists. At billion scale the exact search would become an ANN index (e.g. HNSW) per country
+  partition; nothing else changes.
 
 ---
 
 ## 4. Matching Model
 
-**Features used:**
-- Name features: [e.g., Jaccard, Levenshtein, phonetic encoding]
-- Address features: [e.g., token overlap, edit distance, PIN code matching]
-- Other: []
+**Features used** (80 in stage 2; full list in Appendix B.2):
+- **Name features:** rapidfuzz ratio, token-set, token-sort, partial and Jaro-Winkler on normalised and "core"
+  (legal-suffix-stripped) names; exact core-name match; lengths. The same features on v2 strings (dotted legal
+  forms collapsed). Name-view embedding cosine. Label-free name rarity (how many S1s and records share the name,
+  rarest-token frequency).
+- **Address features:** token-set/sort/partial similarity, empty-address flag, and v2 similarities after street-type
+  expansion (St/Street, R/Rue). House-number Jaccard, common count and first-number equality. Postcode agreement.
+  Address-view cosine.
+- **Other:** name + address cosines (off-the-shelf and fine-tuned); retrieval ranks; source flag; rank and gap to the
+  best within the S1's and within the record's lists; stage-1 probability. **Two cross-encoder scores** and the
+  **LLM reranker P(Yes)** (only in the uncertain band, missing elsewhere). **Cluster features:** similarity to the
+  S1's confident candidates, and probability aggregates. **Competition features:** the candidate record's best value
+  with any *other* S1 and our margin over it, for 6 name similarities and the stage-1 probability. They are computed
+  over the full population at test-like density.
 
-**Model type:** [e.g., XGBoost, Siamese Network, Transformer, etc.]  
-**Threshold selection method:** [e.g., F_0.5 optimization on validation set]
+**Model type:** a cascade. (1) Stage-1 LightGBM. (2) Cross-encoder A: multilingual-e5-small as a sequence-pair
+classifier, 2M pairs, 40% positive, hard negatives chosen by stage-1 probability. (3) Cross-encoder B:
+multilingual-e5-base, 3M pairs. (4) **Qwen3-4B with LoRA** (r 16) trained as a Yes/No classifier on 40k prompts. Each
+prompt shows the S1, the candidate record and up to 3 other S1s that also retrieved the record. It scores only pairs
+with cross-encoder B in (0.1, 0.9): 155k fold-0 and 727k test pairs. (5) Stage-2 LightGBM (127 leaves, lr 0.1,
+early stopping) on all features.  
+**Threshold selection method:** on stage-2 OOF predictions only, we compare (a) one global threshold, grid-tuned
+for macro F0.5, and (b) a per-S1 expected-F0.5-optimal subset. Both enforce **one S1 per record** (each S2/S3 record
+goes to its highest-probability S1). Recent runs chose (a) at 0.75 ({{FINAL: E023 rule and threshold}}). An empty
+list is predicted whenever nothing passes, which earns the singleton credit. The unseen-country variant uses
+threshold 0.85 for S1s whose country string never occurs in train, from the same run
+({{FINAL: whether the final upload is the base or the unseen variant}}).
 
 ---
 
 ## 5. Results & Error Analysis
 
-- **F_0.5 Score (macro):** [your best validation score]
-- **Common false positives (wrong merges):** [brief description]
-- **Common false negatives (missed matches):** [brief description]
+- **F_0.5 Score (macro):** {{FINAL: E023 dev F0.5}} dev at test-like density (OOF {{FINAL: E023 OOF}}), public LB
+  {{FINAL: E023 LB}}. Best dev before the final build: E022, 0.99116 dev / 0.99103 OOF at train density. Best LB
+  before it: 0.985645 (sub-10).
+
+| Step (experiment) | Dev F0.5 | Public LB |
+|---|---:|---:|
+| Baseline: 3-view retrieval + LightGBM + threshold (E003) | 0.9476 | failed at portal (sub-02) |
+| Full-population stage 2 with competition features (E009) | 0.9643 | 0.947598 |
+| + cross-encoder A (E010) | 0.9840 | 0.975154 |
+| + name-rarity features (E013) | 0.9844 | 0.975726 |
+| + fine-tuned bi-encoder view, clean fold-0 fit pool (E015) | 0.9898 | 0.983322 |
+| + cross-encoder B, e5-base (E016) | 0.9905 | 0.984727 |
+| + name competition features (E017) | 0.9910 | 0.985645 (sub-10, with dropped self-training) |
+| + LLM reranker (E022) | 0.99116 | not submitted |
+| + test-like density (E025, dev at test-like density) | 0.98975 → 0.99039 | not submitted |
+| **Final E023** (E022 + v2 normalisation + density + 4.71/S1 filter, no self-training) | {{FINAL}} | {{FINAL}} |
+
+- **Common false positives (wrong merges):** different businesses with the same or near-identical name (reused names,
+  chain branches) when the address is empty or generic. **French records** before normalisation v2: "2 R PAUL
+  VERLANE" vs "2 RUE PAUL VERLAINE" looked different to every address feature, so names alone decided. The public-LB
+  probes showed that French errors are mostly false merges.
+- **Common false negatives (missed matches):** records whose name was replaced by an unrelated string and whose
+  address is truncated, and Indic-script names with sparse addresses. After the bi-encoder, ~85% of the remaining dev
+  loss is **retrieved but rejected** true matches, mostly empty-address records whose name nearly matches several S1s.
+  The competition features and the LLM reranker target exactly this.
+- **Dev→LB gap** (0.0054 at sub-10). Our estimates of its parts: test-like density ~0.0011 (now modelled), France
+  ≥ 0.0024, denser test pool ~0.0002, and model overconfidence on test ~0.001-0.002.
 
 ---
 
 ## 6. Conclusion
-*Summarize your approach, key achievements, and lessons learned in 2-3 sentences.*
-
----
-
-## Version history (leaderboard submissions)
-
-| Tag | What | Validation F0.5 | Public LB |
-|---|---|---|---|
-| sub-01 | All-empty format probe (no model) | n/a | pending |
-| sub-02 | Baseline: multilingual-e5-small blocking (name, address, name+address views; top-10 each from S2 and S3, same country) + LightGBM on 31 similarity/context features + threshold 0.70 with one-S1-per-record assignment | 0.9476 (dev, 100k held-out S1); 0.9487 (5-fold OOF) | pending |
-| sub-03 (LB 0.947598) | Stage 1 over every S1 (train out-of-fold), top-15 candidates, second-stage LightGBM with cluster and full-population competition features, expected-F0.5 decisions | 0.9643 (dev); 0.9618 (OOF) | pending |
-| sub-06 (LB 0.975154) | sub-03 pipeline + cross-encoder (multilingual-e5-small fine-tuned as a sequence-pair classifier on 2M stage-1 candidate pairs from folds 1-2) as a stage-2 feature | 0.9840 (dev); 0.9838 (OOF) | pending |
-| sub-07 | sub-06 + label-free name-rarity features (same-name counts per country, rarest-token frequency) targeting empty-address candidates | 0.9844 (dev); 0.9843 (OOF) | pending |
+Recall first, then precision. A fine-tuned retrieval view removed most unretrievable pairs. Cross-encoders and a
+competitor-aware LLM reranker then attacked the look-alike merges that F0.5 punishes most. We kept the final set at
+4.71 candidates per S1 while losing only about 0.1 percentage point of pair recall. The biggest lessons were about validation, not
+models: features that compare a record's S1s must be computed over the full population and at test density, and each
+learned score must be out-of-sample where the next stage is fitted. We dropped test-time self-training despite its
+leaderboard use because it could not be validated and conflicted with "provided training data only".
 
 ---
 
 ## Appendix
 
 ### A. Code Artefacts
-*Your complete, runnable code ships in the submission zip under
-`code/business_entity_resolution/` (all source in `src/`, with a `README.md` and
-`requirements.txt`). Summarise its structure and the entry point(s) to reproduce
-`output/matching_results.tsv` and `output/candidate_pairs.tsv` here.*
+The runnable pipeline is in `code/business_entity_resolution/`: all source in `src/`, `README.md` (= reproduction
+guide, with runtimes), and `requirements.txt` (pinned; torch 2.8.0 + CUDA 12.8). **Entry point:**
+`bash scripts/reproduce.sh` regenerates `output/matching_results.tsv` and `output/candidate_pairs.tsv` from the
+organisers' TSVs (~24 h, ~20 GPU-hours on one RTX 5080 16 GB, 64 GB RAM) and runs both validators.
+
+| Module | Role |
+|---|---|
+| `src/er_data.py` | exact TSV loading (tab, no quoting, strings) and parquet cache |
+| `src/er_normalize.py`, `src/er_norm2.py` | normalisation v1 (anyascii transliteration, core name, numbers, postcode) and v2 (street types, dotted legal forms) |
+| `scripts/make_folds.py`, `src/cv.py` | shared S1 folds (seed 42) and the 100k dev subset |
+| `src/er_embed.py`, `src/er_biencoder.py` | e5 embeddings per view; bi-encoder fine-tuning (E014) |
+| `src/er_blocking.py`, `src/er_pipeline.py` | same-country exact top-k retrieval, featurisation, decision-rule choice |
+| `src/er_features.py` | 32 stage-1 pair features |
+| `src/er_fullpass.py` | stage 1 over all S1s; stage 2 (features, candidate filter, LightGBM, decisions, TSVs) |
+| `src/er_stage2.py` | cluster and full-population competition features |
+| `src/er_crossenc.py` | cross-encoder training and scoring |
+| `src/er_llmrank.py` | reranker prompts, LoRA training, scoring, mapping to a feature |
+| `src/er_model.py`, `src/er_decide.py` | grouped-OOF LightGBM; threshold / expected-F0.5 decisions with one-S1-per-record assignment |
+| `src/metrics.py`, `src/er_submission.py` | official macro F0.5 (unit-tested); writer and validator of both TSVs |
 
 ### B. Additional Results
-*Include any additional charts, graphs, or detailed results.*
+
+#### B.1 Experiment log (dev = 100k held-out S1; full log in `docs/EXPERIMENTS.md`)
+| ID | Change | Result | Kept? |
+|---|---|---|---|
+| E002 | recall of single views (dev, top-10) | name 0.592, address 0.868, union 0.946 | address view is essential |
+| E003 | baseline: 3 views, k=10, LightGBM on 31 features, threshold 0.70 | dev 0.9476 | yes |
+| E005/E006 | second stage with cluster + competition features (sampled population) | +0.0071, but the gain was biased by sampling | replaced by E009 |
+| E009 | stage 1 over **all** S1s, full-population competition features | dev 0.9643 | yes |
+| E010 | + cross-encoder A (e5-small, folds 1-2) | dev 0.9840 (+0.0197) | yes |
+| E011 | two fold-disjoint cross-encoders, stage 2 on all folds | dev 0.9841 | no (no gain) |
+| E012 | char 3-gram TF-IDF+SVD retrieval view | recall 0.9740 → 0.9781 | no (small) |
+| E013 | + 6 label-free name-rarity features | dev 0.9844 | yes |
+| E014 | fine-tuned bi-encoder view | recall 0.9740 → 0.9976 at top-10 | yes |
+| E015 | rebuild with the 4th view; stage 1/2 fitted on fold 0 minus dev | dev 0.9898 (stage 1 alone 0.9603); stage 3 no gain | yes |
+| E016 | + cross-encoder B (e5-base, 3M pairs, folds 1-4) | dev 0.9905 | yes |
+| E017 | + competition features on 5 name similarities | dev 0.9910 | yes |
+| E018/E020 | self-training of cross-encoder B on test pseudo-labels | not measurable on dev; LB 0.985645 | **dropped** (unvalidated; compliance risk) |
+| E022 | + Qwen3-4B LoRA reranker on the (0.1, 0.9) band | dev 0.99116 (+0.00019), OOF +0.00030; band AUC 0.922 vs cross-encoder 0.770 | yes |
+| E024 | + normalisation v2 features | dev 0.99098 (neutral; aimed at France) | yes |
+| E025 | test-like competitor density (keep 0.78) | test-like-density dev 0.98975 → 0.99039 | yes |
+| E026 | LightGBM tuning (lr, leaves, min leaf, feature fraction, L2, 3 seeds) | all within ±0.00015 | no (saturated) |
+| E023 | final build (Section 5) | {{FINAL}} | final |
+
+#### B.2 Stage-2 features (80)
+- **Stage 1 (32 + probability):** `cos_{name,addr,both,both_ft}`; `name_{ratio,tset,tsort,partial,jw,full_tset,exact_core,len_l,len_r}`;
+  `addr_{tset,partial,tsort,empty_r}`; `num_{jaccard,common,first_eq}`, `post_eq`;
+  `ctx_{rank_in_s1,gap_to_best_s1,n_cands_s1,rank_in_cand,gap_to_best_cand,n_s1_for_cand}`; `is_s3`;
+  `rank_{name,addr,both,both_ft}`; `prob`.
+- **Scores (3):** cross-encoder A, cross-encoder B, LLM P(Yes) (missing outside the band).
+- **Cluster (21):** stage-1-probability aggregates per S1 and record (`s2_prob`, rank, gap to max, counts ≥ 0.5 / 0.9,
+  sum, best other S1, margin) and sibling similarity to the S1's confident candidates (max and weighted mean of 6
+  similarities, anchor count).
+- **Competition (12):** best other-S1 value and margin for `cos_name`, `name_ratio`, `name_jw`, `name_full_tset`,
+  `name_tsort`, and v2 `name2_ratio`.
+- **Normalisation v2 (5):** `name2_{ratio,tset,tsort}`, `addr2_{tset,tsort}`.
+- **Rarity (6):** same-name counts among S1s and among records, for both sides; rarest-token document frequency.
+
+#### B.3 Hyperparameters and compute (RTX 5080 16 GB, bf16; 64 GB RAM; 32 threads)
+| Component | Settings | Time |
+|---|---|---|
+| e5-small embeddings | 3 views × train + test, max length per view, float16 output | ~75 min |
+| Bi-encoder (E014) | e5-small, 1.5M pairs, batch 256, lr 3e-5, InfoNCE scale 20, max len 96, 1 pass | 18 min + 10 min embedding |
+| Stage 1 (E015) | LightGBM binary, lr 0.1, 127 leaves, min leaf 100, feature/bagging fraction 0.8, L2 1, ≤1000 rounds, early stop 50; 200k S1, 4 groups | ~3.4 h incl. retrieval and scoring of 3.9M S1 |
+| Cross-encoder A (E008) | e5-small, 2M pairs (40% pos), batch 128, lr 3e-5, warm-up 6%, 1 epoch, max len 96 | 24 min + 1.4 h scoring |
+| Cross-encoder B (E016) | e5-base, 3M pairs, batch 64, lr 2e-5, 1 epoch | 2.4 h + 1.2 h scoring |
+| LLM reranker (E022) | Qwen3-4B bf16, LoRA r 16 / alpha 32 / dropout 0.05 on q,k,v,o,gate,up,down; lr 1e-4 one-cycle; batch 16; max len 256; 40k prompts, 1 epoch | 1.1 h train; 3.3 h scoring (batch 32) |
+| Stage 2 (E023) | same LightGBM settings; fitted on fold 0 minus dev; competition density keep 0.78 | ~1.5 h CPU |
+| Total | | ~24 h wall clock, ~20 GPU-hours |
+
+#### B.4 Error analysis and probes
+- **Before the bi-encoder (E010):** 51% of the dev loss was never-retrieved pairs, 3x worse in India. The bi-encoder
+  recovered 90.7% of them.
+- **After (E015/E017):** ~85% of the dev loss is retrieved-but-rejected true matches, mostly empty-address records
+  whose name nearly matches several S1s. On this band the reranker separates much better than cross-encoder B
+  (AUC 0.922 vs 0.770; stage 2 as a whole 0.939).
+- **France (public LB, on sub-03):** emptying all French rows gave 0.821, implying French F0.5 ≈ 0.89 against ≈ 0.957
+  for US + India. A stricter French threshold (0.95) gained +0.0022, so the French errors were false merges.
+  Cross-encoder A alone brought French mean matches per S1 from 3.375 to 3.182, in line with US and India.
+- **Dev by country:** E022 US 0.99047, India 0.99220. India overtook US once the bi-encoder fixed Indic-script
+  retrieval.
+
+#### B.5 Models and licences
+| Model | Licence | Parameters | Use |
+|---|---|---|---|
+| intfloat/multilingual-e5-small | MIT | 118M | retrieval embeddings; bi-encoder and cross-encoder A (fine-tuned on train only) |
+| intfloat/multilingual-e5-base | MIT | 278M | cross-encoder B (fine-tuned on train only) |
+| Qwen/Qwen3-4B | Apache-2.0 | 4.0B | LoRA reranker (adapters trained on train only) |
+| LightGBM | MIT | n/a | stage-1 and stage-2 classifiers |
+
+All models run offline and are ≤ 8B parameters. We use no external data, APIs, registries, geocoding or hosted LLMs.
+Normalisation uses small hand-written generic dictionaries (legal-form words, street-type abbreviations, `&`,
+`null`). `country` is an open set of strings; nothing branches on a specific value.
+
+#### B.6 Submission history (public LB)
+| Tag | Experiment | Dev / OOF F0.5 | Public LB |
+|---|---|---|---|
+| sub-01 | all-empty format probe | n/a | probe |
+| sub-02 | E004 baseline | 0.9476 / 0.9487 | failed at portal evaluation (file passes both validators) |
+| sub-03 | E009 full-population stage 2 | 0.9643 / 0.9618 | 0.947598 |
+| sub-04 | probe: sub-03 with France emptied | probe | 0.821 |
+| (untagged) | probe: sub-03 with French threshold 0.95 | probe | 0.949822 |
+| sub-06 | E010 + cross-encoder A | 0.9840 / 0.9838 | 0.975154 |
+| sub-07 | E013 rarity | 0.9844 / 0.9843 | 0.975726 |
+| sub-08 | E015 bi-encoder view | 0.9898 / 0.9896 | 0.983322 |
+| sub-09 | E016 cross-encoder B | 0.9905 / 0.9901 | 0.984727 |
+| sub-10 | E020 (E017 + self-training, now dropped) | 0.9910 / 0.9907 | 0.985645 |
+| {{FINAL: sub-11}} | E023 final build | {{FINAL}} | {{FINAL}} |
+| {{FINAL: sub-12}} | E023 unseen-country variant (same run) | {{FINAL}} | {{FINAL}} |
 
 ---
 

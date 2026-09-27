@@ -121,7 +121,9 @@ before final rankings are confirmed. Code needs proper comments describing the f
 - **Every model** (embedder, reranker, matcher, preprocessing model) must independently be MIT/Apache-2.0, ≤ 8B
   parameters, run **offline** (no live API calls), and be **fine-tuned only on the provided data**. Licences are checked.
 - **Hosted LLM APIs (Claude/Gemini/ChatGPT) are not allowed** in the solution.
-- **Self-training on unlabeled test records** (pseudo-labels from our own predictions, no external data): confirmed allowed by the team lead (Shaunak) on 2026-09-26, as test records are provided data. Keep the organisers' wording/answer on file for the approach doc.
+- **Self-training on unlabeled test records** (pseudo-labels from our own predictions): the team lead's reading on
+  2026-09-26, **not confirmed by the organisers**; the statement's Fair Play line says "using only the provided training
+  data". **Dropped from the final build (26 Sep 22:40) to remove the risk**; only sub-10 used it.
 
 ### Our compliance (keep current; mirrored in docs/REPRODUCE.md)
 | Component | Type | Licence | Params | Verdict |
@@ -129,6 +131,7 @@ before final rankings are confirmed. Code needs proper comments describing the f
 | intfloat/multilingual-e5-small | embedding model, offline | MIT | 118M | allowed; fine-tuning (if any) only on provided train data |
 | microsoft/mdeberta-v3-base (planned) | cross-encoder backbone, offline | MIT | 278M | allowed |
 | intfloat/multilingual-e5-base (E016 cross-encoder) | cross-encoder backbone, offline | MIT | 278M | allowed; fine-tuned only on provided data |
+| intfloat/multilingual-e5-large (E027 cross-encoder) | cross-encoder backbone, offline | MIT (model card, checked 27 Sep) | 560M | allowed (<= 8B); fine-tuned only on provided data (folds 1-4) |
 | **Qwen/Qwen3-4B** (planned LLM reranker, LoRA) | decoder LLM as a pair classifier, offline | Apache-2.0 (model card, checked 26 Sep) | 4.0B | allowed (<= 8B); fine-tuned only on provided data |
 | Qwen/Qwen2.5-7B-Instruct (optional larger reranker) | decoder LLM, offline | Apache-2.0 | 7.6B | allowed (<= 8B) |
 | Qwen/Qwen2.5-1.5B-Instruct (fallback reranker) | decoder LLM, offline | Apache-2.0 (model card, checked 26 Sep) | 1.54B | allowed |
@@ -138,8 +141,8 @@ before final rankings are confirmed. Code needs proper comments describing the f
 | legal-suffix list, `&`→"and", `null` cleanup (`src/er_normalize.py`) | small hand-written normalisation dictionary | ours | n/a | explicitly allowed |
 | postcode / number extraction | regex on provided records | ours | n/a | allowed |
 | network calls in `src/` | none (models load from local cache) | — | — | compliant |
-Never add: libpostal, geocoders, postal-code/gazetteer/state-abbreviation datasets, or hosted LLM calls. Abbreviation
-maps, if used, are learned from the provided training pairs.
+Never add: libpostal, geocoders, postal-code/gazetteer/state-abbreviation datasets, or hosted LLM calls. Abbreviation maps are small hand-written
+generic dictionaries (organiser-allowed), applied to every row regardless of country.
 
 ## Submission limits and leaderboard
 - **Max 5 submissions per day**, for 3 days (15 total); the submit button is then disabled. Daily reset time is not

@@ -113,6 +113,17 @@ If a level isn't available on a model, recommend the nearest one.
 - Hygiene: keep this file lean; read only needed files; never dump data/logs into context (head/tail/grep,
   `monitor.watch --once`); remind the user to `/clear` when switching to unrelated tasks.
 
+## Final-day state & hard-won lessons (26-27 Sep) — read docs/DAILY_LOG.md HANDOFF first
+- Goal: candidate_pairs ~4.71/S1 (stage-1 >= 0.2 OR E016 CE >= 0.01; recall 0.9963) + matching toward the 0.99892 dev
+  ceiling. Report BOTH files every time: dev F0.5, LB, cands/S1, candidate recall, ceiling.
+- Fold 0 is clean: every learned model (bi-encoder, CEs, LLM LoRA) trains on folds 1-4 only; stage 1/2 fit on fold 0 minus dev.
+- Test has fewer competing S1s per record than train (2.67 vs 3.27): use --comp-keep 0.78 (E025).
+- Qwen3-4B scoring: batch 32 + logits_to_keep=1 (batch 64 spilled GPU memory into RAM; ~5x slower). Watch
+  '\GPU Adapter Memory(*)\Shared Usage'.
+- Launch chains only with run_in_background (never '&'); check processes with PowerShell; kill strays top-down.
+- 64 GB RAM: one stage-2 run at a time (~48 GB peak); scripts/ram_guard.ps1, pause_jobs.ps1, keep_awake.ps1, game_mode.ps1.
+- Discord: monitor.notify (DISCORD_WEBHOOK_URL in .env) for progress/failure alerts.
+
 ## Docs index
 - [docs/COMPETITION.md](docs/COMPETITION.md) — rules, metric, schema, limits (fill Day 1)
 - [docs/PLAYBOOK_72H.md](docs/PLAYBOOK_72H.md) — hour-by-hour plan + strategies per problem type

@@ -23,6 +23,7 @@ import pandas as pd
 
 from src.er_data import cache_dir
 from src.er_model import predict, train_oof
+from src.er_decide import decide
 from src.er_pipeline import VIEWS, Split, apply_decision, choose_decision, featurize, log, retrieve, topk_mask
 from src.er_stage2 import cluster_features, competition_features
 from src.metrics import er_fbeta_macro
@@ -432,6 +433,17 @@ def cmd_stage2(a: argparse.Namespace) -> None:
     for s, c in zip(probs.s1_id.to_numpy(), probs.cand_id.to_numpy()):
         cands.setdefault(s, []).append(c)
     write_outputs(matches, cands, te.s1.entity_id.to_numpy(), Path(a.out), test_dir=dataset_dir() / "test")
+    if a.unseen_threshold:
+        # Same run, same probabilities and candidates: S1s whose country string never occurs in train get a stricter
+        # global threshold (domain shift -> precision first under F0.5). Countries are read from the data, not listed.
+        train_countries = set(pd.read_parquet(cache_dir() / "train_s1.parquet", columns=["country"]).country.unique())
+        ctry = te.s1.set_index("entity_id").country
+        unseen = ~ctry.reindex(probs.s1_id).isin(train_countries).to_numpy()
+        unseen_s1 = set(probs.s1_id[unseen])            # built once (inside the comprehension it was O(n^2): hung)
+        m2 = {k: v for k, v in matches.items() if k not in unseen_s1}
+        m2.update(decide(probs[unseen], a.unseen_threshold, assign=True))
+        log(f"unseen-country variant: {int(unseen.sum()):,} pairs of countries {sorted(set(ctry[~ctry.isin(train_countries)]))}")
+        write_outputs(m2, cands, te.s1.entity_id.to_numpy(), Path(a.out + "_unseen"), test_dir=dataset_dir() / "test")
     s1 = te.s1.entity_id.to_numpy()
     info = {**res, "test_pairs": len(probs), "nonempty_share": sum(1 for v in matches.values() if v) / len(s1),
             "mean_matches": float(np.mean([len(matches.get(x, ())) for x in s1])), "runtime_s": round(time.time() - t0)}
@@ -467,6 +479,8 @@ def main() -> None:
     s2.add_argument("--tag", default="", help="suffix for saved dev predictions (dev_stage2_<tag>.parquet)")
     s2.add_argument("--frames", default="", help="cache dir for the stage-2 design matrices (load if present, else save)")
     s2.add_argument("--lgb-params", default="", help='JSON LightGBM overrides, e.g. {"num_leaves": 255}')
+    s2.add_argument("--unseen-threshold", type=float, default=0.0,
+                    help="also write <out>_unseen: stricter threshold for S1 countries absent from train (same run)")
     s2.add_argument("--prune-eps", type=float, default=0.0,
                     help="final candidate set: keep pairs with stage-1 prob >= eps (e.g. 0.003 -> ~6.4 per S1)")
     s2.add_argument("--prune-ce-dir", default="", help="CE scores for the OR-rule candidate filter (e.g. runs/E016-ce)")

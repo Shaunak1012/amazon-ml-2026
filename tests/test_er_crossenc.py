@@ -182,3 +182,19 @@ def test_cli_train_and_score(synth, tiny_model, tmp_path):
     ce.main(["score", "--model", str(model_dir), "--chunks", str(chunks_dir), "--split", "train", "--out", str(out),
              *common])
     assert (out / "001.parquet").exists() and (out / "000.parquet").stat().st_mtime == mtime0
+
+    # --keep-prob / --keep-ce-dir: only final candidate rows (prob >= t OR filter CE >= c) scored, rows stay aligned
+    filt = tmp_path / "filt" / "train_ce"
+    filt.mkdir(parents=True)
+    for name in ("000.parquet", "001.parquet"):
+        s = pd.read_parquet(out / name)
+        s.assign(ce_score=np.where(np.arange(len(s)) % 3 == 0, 0.9, 0.001).astype(np.float32)).to_parquet(filt / name)
+    kept = tmp_path / "kept_ce"
+    ce.main(["score", "--model", str(model_dir), "--chunks", str(chunks_dir), "--split", "train", "--out", str(kept),
+             "--keep-prob", "0.5", "--keep-ce-dir", str(tmp_path / "filt"), "--keep-ce", "0.01", *common])
+    for name in ("000.parquet", "001.parquet"):
+        src, full, got = pd.read_parquet(chunks_dir / name), pd.read_parquet(out / name), pd.read_parquet(kept / name)
+        want = (src.prob.to_numpy() >= 0.5) | (np.arange(len(src)) % 3 == 0)
+        assert got.cand_id.tolist() == src.cand_id.tolist()
+        assert got.ce_score.notna().to_numpy().tolist() == want.tolist()
+        np.testing.assert_allclose(got.ce_score[want], full.ce_score[want], atol=1e-5)

@@ -8,28 +8,49 @@ mid-way should catch up in 2 minutes. Also keep the GPU queue current.
 |---|---|---|---|
 | — | — | — | — |
 
-## HANDOFF — 2026-09-26 12:10 IST (read this first in a new session)
-**Leaderboard:** best = sub-08 **0.983322** (E015). #1 = 0.990556 (26 Sep midday). sub-07 0.975726. Slots on 26 Sep: **3 left** (assumes
-sub-07 counted on 26 Sep). Keep >= 2 for 27 Sep.
+## HANDOFF — 2026-09-26 23:40 IST (read this first in a new session; supersedes all earlier notes)
+**LB:** sub-10 (E020, self-trained) **0.985645** = best; sub-11 (E017, same w/o self-training) 0.985144 -> self-training
+= +0.0005 LB. Leader 0.990748; **user target 0.9908 (rank 1)**. Slots 27 Sep: **5**. Deadline 27 Sep 23:59 IST.
+**Goal (both files equal priority):** candidate_pairs ~4.71/S1 (stage-1>=0.2 OR E016 CE>=0.01; dev recall 0.9963, fit-pool
+0.9962; test FR 5.73/IN 4.60/US 4.53) + matching toward the 0.99892 dev ceiling. Report dev F0.5, LB, cands/S1, recall.
+**Decided (user):** drop self-training UNLESS organisers confirm it is allowed (Google Form); clean pre-feature filter =
+optional; both TSVs from ONE stage-2 run; zip from one commit/tag; no stage-2 launch after 19:30.
 
-**E015 (sub-08):** fine-tuned bi-encoder view `both_ft` (E014) added to retrieval + features; stage 1 AND stage 2 fit on
-**fold 0 minus dev** (341k S1 unseen by the bi-encoder and the CE) because the ft cosine is inflated on folds 1-4.
-Dev F0.5 **0.9898** (OOF 0.9896; US 0.9892, India 0.9907). Stage 3 (anchors from stage-2 probs) = no gain.
-Artefacts: `runs/E015/` (chunks, models), E015's own stage-2 outputs backed up in `runs/E015/sub08_E015/`.
+**Running overnight (chains in runs/*-chain.log, launched from the OLD chat; keep it open):**
+1. E022b: DONE 23:40 (E022 dev F0.5 0.99116 with full test mapping; confirms the early check).
+2. E022x (GPU): reranker on the wider band (data runs/E021-llm/data_ext) -> runs/E022-llmce-full (ETA ~06:30; started ~23:25).
+3. E023a-core (CPU, launched 23:41, ETA ~01:00): stage2 --ce-dir runs/E015-ce runs/E016-ce runs/E022-llmce --norm2
+   --comp-keep 0.78 --comp-cols cos_name name_ratio name_jw name_full_tset name_tsort --prune-eps 0.2 --prune-ce-dir
+   runs/E016-ce --prune-ce 0.01 --unseen-threshold 0.85 -> submissions/sub_E023a_core (+ _unseen), validators in
+   runs/E015/sub_E023a_core/validate_*.txt, probs/stage2.json copied there.
+4. E023a-ST (CPU, after 3, ETA ~02:30): same with runs/E020-ce (self-trained) -> submissions/sub_E023a_st; candidate file
+   must be byte-identical to E023a-core (chain prints it).
+Watchdogs: GPU-spill + health (background), Discord via monitor.notify. Keep-awake on.
 
-**Running now:** E016 = cross-encoder v2 (multilingual-e5-base, 3M pairs, folds 1-4, E015 hard negatives;
-`runs/E016-ce-base/model`). Chain `scripts/chains/e016_score.sh` scores fold 0 + test -> `runs/E016-ce/`, then
-`scripts/chains/e016_stage2.sh` runs stage 2 with BOTH CEs (`--ce-dir runs/E015-ce runs/E016-ce`) -> `submissions/sub_E016`
-(~13:30). It writes into runs/E015 (stage2.json etc.). Check: `cat runs/E016-score-chain.log runs/E016-stage2-chain.log`.
-Submit E016 only if dev beats 0.9898 by more than noise (~0.0003).
-
-**Ops lessons:** PC slept 09:21-12:00 and froze jobs -> `scripts/keep_awake.ps1` while jobs run (and set Sleep=Never).
-RAM is the bottleneck (64 GB): stage 2 peaks ~48 GB; `scripts/ram_guard.ps1` suspends a lower-priority job when low;
-`scripts/pause_jobs.ps1 pause|resume|status` pauses everything. Stage 1 now reuses saved fold models on restart.
-
-**Next ideas (ranked):** 1) E016 result; 2) France: pseudo-label fine-tune on confident French test pairs (rules say
-models "fine-tuned only on the provided data" -> test inputs are provided data; confirm wording first); 3) second
-bi-encoder view / k=20 for the last recall; 4) final approach doc + zip (`scripts/make_submission_zip.py`).
+**Teammates' extras (27 Sep):** CE03 (e5-large CE) and OW03 (owner model) are trained by a teammate on their GPU. Integrate only if delivered by ~15:00 as per-chunk parquet aligned to runs/E015/{train,test}_chunks (s1_id, cand_id, ce_score; fold 0 + all test; like runs/E016-ce), trained on folds 1-4 only (fold 0 unseen), MIT/Apache <= 8B: add as an extra --ce-dir to the E023 stage-2 command (new --frames dir, ~75 min) and keep only if dev at test-like density improves. SH01 = our E025 (already in). Seed averaging = add in the morning.
+**Step 0 (user-approved, 27 Sep): E027 = our own multilingual-e5-large cross-encoder, start the moment E022x is DONE (~06:30).** (a) download intfloat/multilingual-e5-large (MIT, 560M). (b) train: python -m src.er_crossenc train --chunks runs/E015/train_chunks --out runs/E027-ce-large/model --n 1500000 --exclude-folds 0 --model-name intfloat/multilingual-e5-large --batch 32 --lr 1.5e-5 (~3.5 h; check GPU shared-memory spill; lower batch if needed). (c) score ONLY the final candidate rows (stage-1 prob >= 0.2 OR runs/E016-ce score >= 0.01) of fold 0 + test: add a keep-mask option to er_crossenc cmd_score (NaN for other rows, row-aligned like --only-folds) -> runs/E027-ce/{train_ce,test_ce} (~3.5 h). (d) stage 2 = E023a command + extra --ce-dir runs/E027-ce, new --frames dir (~75 min, CPU) -> keep only if dev at test-like density improves; candidate_pairs.tsv must stay byte-identical to E023a's. Deadline to have it: ~15:00; otherwise skip. Conflicts: the optional clean-filter GPU scoring is dropped in favour of this. Move monitor/ into src/ only AFTER E027 finishes (its jobs use python -m monitor.launch). Slots: 1 E023a ~09:30, 2-3 unseen sweep ~10:00, 4 E027 variant ~15:00, 5 final <=22:00.
+**27 Sep 03:25:** E023a-core hung after writing its outputs (O(n^2) in the new unseen-variant step; fixed 6bdd28d), killed 03:20; outputs finished from saved probs (runs/E015/sub_E023a_core, both validators PASS, all candidate targets met); E023a-ST relaunched 03:25 with the fix (ETA ~04:00).
+**27 Sep 04:00:** E023a-ST done 03:51 (= core dev, identical candidates, validators PASS). E027 pairs pre-sampled, e5-large cached. France variants u80/u90/u95 built + validated. Global-threshold sweep on E023a dev: 0.70 0.99080 / **0.75 0.99086** / 0.80 0.99079 / 0.85 0.99066 / 0.90 0.99032 / 0.95 0.98951 -> 0.75 stays (slot 4 'global threshold' has no value; slot 4 = E027 or a France variant). G0 + E027 chains armed (runs/E023b-chain.log, runs/E027-chain.log).
+**Itinerary (revised 27 Sep 01:00, new chat):** E022x train split done 00:56 (54.8 prompts/s); test split 1.04M prompts
+-> "E022x CHAIN DONE" ~06:20. E023a-core dev **0.99086** at test-like density (best on the LB-honest basis; E025 0.99039),
+cands 4.71/S1 fit, 4.74/S1 test; ETA ~01:15. E023a-ST ~02:30. 06:20 launch G0 (scripts/chains/e023b_full.sh, CPU, ->
+~07:40) + E027 (scripts/chains/e027_ce_large.sh, GPU: train ~3.5-3.8 h -> ~10:05; scoring ~3.5 h -> **~13:30**; stage 2
+-> **~15:00**). **Re-check E027 training speed after ~1,000 steps and scoring speed after its first shard; adjust ETAs.**
+Slots: 1 = sub-12 ~09:30 (better of E023b / E023a-core by dev); 2 ~10:30 and 3 ~12:00 = threshold variants; **4 = E027
+~15:00** (if dev improves, else a threshold variant); 5 = final <= 22:00. Stage-2 launch cutoff 19:30.
+All targets per result: dev F0.5 (test-like density), LB, cands/S1 4.6-4.8, recall >= 0.996 dev + fit pool
+(scripts/cand_recall.py), reduction ratio >= 99.9998%, organiser validator PASS --check-ids, byte-identical candidates.
+**Morning steps (in order):** (1) check chain logs + validators; record E023a dev (test-like density) + cands/S1.
+(2) G0: dev of runs/E022-llmce-full vs core; if full >= core, rebuild E023a with it (~75 min, new --frames dir).
+(3) Slot 1 = E023a (ST or not per organisers), tag sub-12, safety zip from the tag (scripts/make_submission_zip.py
+--ref sub-12 --team SHSHSHSH --outputs <dir> --doc docs/Documentation_template.md --test-dir data/dataset/test).
+(4) Slots 2-3: unseen-country threshold sweep via scripts/decision_variants.py (same probs => identical candidates),
+e.g. --t-unseen 0.85 / 0.90; slot 4: global threshold picked on test-like-density dev; slot 5 final <= 22:00.
+(5) After all chains end: move monitor/ into src/ (update imports + chains), pin/offline notes; fill 14 {{FINAL:..}}
+placeholders in docs/Documentation_template.md + docs/REPRODUCE.md (drafts committed; scripts/reproduce.sh drafted);
+FAISS scalability note; zip from final tag; sha256 of TSVs = uploaded file. Team: Shaunak A. Rai, Shaswat Solanki,
+Shivam Anand, Shreyas Sreenivas.
+Regression check 26 Sep: today's code reproduces E020 dev exactly (new flags are opt-in).
 
 ## 2026-09-25 (Day 1) — end of day
 - **Leaderboard:** sub-06 **0.975154** (leader 0.986955). sub-03 0.947598; France probes: France-emptied 0.821,
