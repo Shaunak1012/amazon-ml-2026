@@ -125,6 +125,25 @@ def repopulate(X: pd.DataFrame, allp: pd.DataFrame, nm: SimpleNamespace, drop: s
     return X
 
 
+def test_matrix(a: argparse.Namespace, pruned: bool) -> pd.DataFrame:
+    """Test design matrix with the same extra features, dropped columns and candidate rule as the train side."""
+    Xt = add_extra(pd.read_parquet(a.test_frame or Path(a.frames) / "test_frame.parquet"), a.extra_feats, "test").drop(columns=a.drop_cols, errors="ignore")
+    if pruned and a.prune_post:
+        # E023 semantics on test: filter rows after features (test keeps its full, real population)
+        ce_t = Xt[a.cand_ce_col].to_numpy() if a.cand_ce_col else None
+        Xt = Xt[cand_mask(Xt, a.cand_topk, a.cand_min_prob, ce_t, a.cand_ce_min)].reset_index(drop=True)
+    elif pruned:
+        # the SAME candidate rule on test; population features recomputed on the pruned test set, so
+        # candidate_pairs.tsv is exactly what the final model scores (organiser rule, 26 Sep update)
+        ce_t = Xt[a.cand_ce_col].to_numpy() if a.cand_ce_col else None
+        Xt = Xt[cand_mask(Xt, a.cand_topk, a.cand_min_prob, ce_t, a.cand_ce_min)].reset_index(drop=True)
+        Xt["s2_sum_prob_s1"] = Xt.groupby("s1_id").prob.transform("sum").astype(np.float32)
+        Xt = repopulate(Xt, Xt[["s1_id", "cand_id", "prob", *a.comp_cols]], names("test"), set(),
+                        tuple(a.comp_cols), force=True)
+        log(f"test candidate set: {len(Xt) / Xt.s1_id.nunique():.2f} per S1 with candidates")
+    return Xt
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(prog="python -m src.er_frames2")
     ap.add_argument("--frames", required=True, help="dir with train_frame.parquet (+ test_frame.parquet for --out)")
@@ -153,6 +172,9 @@ def main() -> None:
     ap.add_argument("--lgb-params", default="")
     ap.add_argument("--tag", required=True)
     ap.add_argument("--out", default="")
+    ap.add_argument("--refit-check", choices=["A", "B", "final"], default="",
+                    help="RF01 (src/er_refit.py): A/B = train with the other dev half added, score on this half; "
+                         "final = dev folded into fit, test decision drift per country (needs the test frame)")
     a = ap.parse_args()
     t0 = time.time()
     rd = Path("runs") / "frames2" / a.tag
@@ -226,6 +248,20 @@ def main() -> None:
     cand_stats = {"cand_per_s1_dev": len(Xdev) / len(dev_ids),
                   "cand_recall_dev": float(Xdev.y.sum()) / max(n_true, 1),
                   "s1_with_no_cands_dev": 1 - Xdev.s1_id.nunique() / len(dev_ids)}
+    if a.refit_check:
+        from src import er_refit
+        tr_ctry = names("train").left.country
+        if a.refit_check == "final":
+            Xt = test_matrix(a, pruned)
+            res = er_refit.final_check(Xtr, Xdev, y_tr, y_dev, lgb_params(a), a.rounds, Xt,
+                                       names("test").left.country, set(tr_ctry.unique()))
+        else:
+            res, scores = er_refit.half_check(a.refit_check, Xtr, Xdev, y_tr, y_dev, lgb_params(a), a.rounds, tr_ctry)
+            scores.to_parquet(rd / "dev_scores.parquet")
+        res = {"tag": a.tag, **cand_stats, **res}
+        (rd / "refit.json").write_text(json.dumps(res, indent=2, default=float), encoding="utf-8")
+        log(f"refit check done [{time.time() - t0:.0f}s]")
+        return
     rule1, t1, _ = choose_decision(Xtr[["s1_id", "cand_id", "prob"]], y_tr)
     res = {"tag": a.tag, "drop_s1_frac": a.drop_s1_frac, "drop_in": a.drop_in, "n_fit": len(fit_ids),
            "n_dev": len(dev_ids), "cand_topk": a.cand_topk, "cand_min_prob": a.cand_min_prob, "cand_ce_col": a.cand_ce_col,
@@ -260,20 +296,7 @@ def main() -> None:
     if not a.out:
         return
     from src.er_submission import write_outputs
-    Xt = add_extra(pd.read_parquet(a.test_frame or Path(a.frames) / "test_frame.parquet"), a.extra_feats, "test").drop(columns=a.drop_cols, errors="ignore")
-    if pruned and a.prune_post:
-        # E023 semantics on test: filter rows after features (test keeps its full, real population)
-        ce_t = Xt[a.cand_ce_col].to_numpy() if a.cand_ce_col else None
-        Xt = Xt[cand_mask(Xt, a.cand_topk, a.cand_min_prob, ce_t, a.cand_ce_min)].reset_index(drop=True)
-    elif pruned:
-        # the SAME candidate rule on test; population features recomputed on the pruned test set, so
-        # candidate_pairs.tsv is exactly what the final model scores (organiser rule, 26 Sep update)
-        ce_t = Xt[a.cand_ce_col].to_numpy() if a.cand_ce_col else None
-        Xt = Xt[cand_mask(Xt, a.cand_topk, a.cand_min_prob, ce_t, a.cand_ce_min)].reset_index(drop=True)
-        Xt["s2_sum_prob_s1"] = Xt.groupby("s1_id").prob.transform("sum").astype(np.float32)
-        Xt = repopulate(Xt, Xt[["s1_id", "cand_id", "prob", *a.comp_cols]], names("test"), set(),
-                        tuple(a.comp_cols), force=True)
-        log(f"test candidate set: {len(Xt) / Xt.s1_id.nunique():.2f} per S1 with candidates")
+    Xt = test_matrix(a, pruned)
     ft = Xt.drop(columns=["prob"])
     ft["s1_prob"] = Xt.prob.to_numpy()
     probs = Xt[["s1_id", "cand_id"]].assign(prob=predict(models, ft).astype(np.float32))
