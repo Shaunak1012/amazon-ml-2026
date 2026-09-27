@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# E034: E033 + Shreyas's listwise owner model OW04 (OW04p owner probability, OW04m owner margin; multilingual-e5-large,
+# E034: E033 + the listwise owner model OW04 (OW04p owner probability, OW04m owner margin; multilingual-e5-large,
 # MIT, trained on folds 1-4 groups only, no self-training). Appended at the END of E033's --ce-dir so existing CE column
 # names are unchanged. Same candidate filter (3.83/S1) -> candidate_pairs.tsv must be byte-identical to E033's.
 # Gate (all must hold, else ship E033): dev >= 0.99119, OOF >= 0.99100, US >= 0.99026, India >= 0.99185, validators PASS.
