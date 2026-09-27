@@ -22,7 +22,7 @@
 #   FINAL_VARIANT=unseen       base = global decision threshold for every country; unseen = the stricter threshold
 #                              (0.85) for S1 countries absent from train, written by the SAME stage-2 run
 #                              (default unseen = the final submission)
-#   FINAL_STACK=e037           e023b_st | e029 | e030 | e034 | e037: CE stack of the final stage 2 (steps 12c-12j)
+#   FINAL_STACK=e034           e023b_st | e029 | e030 | e034 | e037: CE stack of the final stage 2 (steps 12c-12j)
 #
 # Most steps are resumable (embeddings, model training checkpoints, scoring shards, stage-1 chunks): after a crash,
 # re-running this script skips finished work where the step supports it.
@@ -34,7 +34,7 @@ PY="${PY:-python}"
 E008_FAITHFUL="${E008_FAITHFUL:-1}"
 LLM_BAND="${LLM_BAND:-full}"
 FINAL_VARIANT="${FINAL_VARIANT:-unseen}"
-FINAL_STACK="${FINAL_STACK:-e037}"
+FINAL_STACK="${FINAL_STACK:-e034}"
 DATA="${DATA_DIR:-data}"
 export PYTHONUNBUFFERED=1
 

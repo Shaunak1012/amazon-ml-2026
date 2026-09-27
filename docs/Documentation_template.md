@@ -16,15 +16,15 @@ We use a cascade that starts with fast, high-recall steps and ends with precise,
 dense retrieval over four multilingual-e5 views, one of them a bi-encoder we fine-tuned on train matches. Then a
 LightGBM filter, three fine-tuned cross-encoders (multilingual-e5 small, base and large), and a Qwen3-4B LoRA reranker that sees the *competing* S1s. Last, a
 stage-2 LightGBM and an F0.5-tuned decision layer that gives each S2/S3 record to at most one S1. The final model runs
-on **3.83 candidates per S1 on dev (3.98 on test) at 99.1% pair recall** and scores **0.99154 dev** (best measured
-public LB before the final upload: 0.98793). The main idea is that features must mean the same thing on train, dev and test:
+on **3.83 candidates per S1 on dev (3.98 on test) at 99.1% pair recall** and scores **0.99154 dev / 0.98793 public
+LB**. The main idea is that features must mean the same thing on train, dev and test:
 cross-S1 features are computed over the full S1 population at test-like competitor density, and every learned score
 is out-of-sample on the S1s used to fit and validate the final model. For France, the country absent from train,
 we adapt the cross-encoders with test-time self-training on our own confident predictions (allowed by the organisers)
 and with synthetic French-style training pairs built from the provided train records.
 
 
-![Final pipeline (E037)](architecture.png)
+![Final pipeline (E034)](architecture.png)
 
 ---
 
@@ -79,12 +79,21 @@ remaining error: look-alike names with empty addresses.
   The union of all hits is the retrieved set. A stage-1 LightGBM on 32 cheap features (embedding cosines, rapidfuzz
   name/address similarities, number/postcode agreement, rank context) then filters it.
 - **Candidate pairs generated:** 3.83 per S1 on dev (pair recall 0.991); 3.98 per S1 (US 3.76, India 3.86, France
-  4.94; at most 15) and 6,899,738 pairs on test. The reduction ratio against all S1 × (S2 ∪ S3) pairs is
-  99.99996%. Final filter: stage-1 probability ≥ 0.5 OR cross-encoder (E016) score ≥ 0.05; for the country absent from train, also
-  when the France-adapted e5-large cross-encoder scores ≥ 0.5 (the filter CE never saw French text; +0.015 pairs per
-  French S1).
+  4.92; at most 15) and 6,895,815 pairs on test. The reduction ratio against all S1 × (S2 ∪ S3) pairs is
+  99.99996%. Final filter: stage-1 probability ≥ 0.5 OR cross-encoder (E016) score ≥ 0.05.
   Tightening it from 4.71 to 3.83 per S1 cost only 0.00005 dev F0.5, because the dropped pairs were almost never
   matched. Stage 2 is fitted and applied on exactly this set, so `candidate_pairs.tsv` is the matcher's inference set.
+- **Candidate generation efficiency (test, 1.73M S1 entities, 9.97M S2/S3 records):**
+
+| Stage | Pairs per S1 | Pairs in total | Work | Pair recall (dev) |
+|---|---:|---:|---|---:|
+| All S1 × (S2 ∪ S3) pairs | 9.97M | 1.7 × 10^13 | not computed | 1.0 |
+| A. same-country dense k-NN (4 views × 2 sources × top-10) | ~62 | ~1.1 × 10^8 | one embedding per record (linear) + k-NN per S1 (ANN at scale) | 0.9976 |
+| B. stage-1 LightGBM on cheap features, top 15 | 15 | 2.6 × 10^7 | ~3 ms per S1 incl. features (CPU) | 0.9974 |
+| C. filter: stage-1 ≥ 0.5 OR e5-base CE ≥ 0.05 | **3.98** | **6.9 × 10^6** | CE on the 15 kept pairs (GPU) | **0.991** |
+
+  The matcher (and every expensive model after the filter) runs on 3.98 pairs per entity; the whole cascade is linear
+  in the number of S1 entities. Measured on one RTX 5080: e5-large CE scoring 1,460 pairs/s, stage 2 ~30 min CPU.
 - **Scalability (billions of records):** no step compares all pairs. Retrieval is dense-vector k-nearest-neighbour
   search per view, partitioned by country; at competition size we ran it as an exact chunked GPU inner product to
   maximise recall, and at production size the same embeddings go into an approximate index (FAISS IVF-PQ or HNSW,
@@ -155,8 +164,8 @@ threshold 0.85 for S1s whose country string never occurs in train, from the same
 
 ## 5. Results & Error Analysis
 
-- **F_0.5 Score (macro):** 0.99154 dev at test-like density (OOF 0.99142) for the final model (E037); the final
-  upload's public LB is on the portal. Best measured public LB before it: 0.98793 (sub-17, E034). Dev and OOF agree to
+- **F_0.5 Score (macro):** 0.99154 dev at test-like density (OOF 0.99142) and **0.98793 public LB** for the final
+  model (E034, uploaded as sub-17 and again as the final). Dev and OOF agree to
   0.00001 in every recent run.
 
 | Step (experiment) | Dev F0.5 | Public LB |
@@ -175,8 +184,8 @@ threshold 0.85 for S1s whose country string never occurs in train, from the same
 | + e5-large cross-encoder (E027) | 0.99104 | not submitted |
 | + francized e5-large (E029) + self-training on it (E030) | 0.99104 | not submitted |
 | E033: E030 + 3.83/S1 candidate filter + France threshold 0.85 | 0.99099 | 0.987692 (sub-16) |
-| + listwise owner model OW04 (E034) | 0.99154 | 0.98793 (sub-17) |
-| **Final (E037)**: E034 + France self-training round 2 (E036) + French candidate rescue | **0.99154** | final upload |
+| **Final (E034)**: + listwise owner model OW04 | **0.99154** | **0.98793** (sub-17) |
+| E037: E034 + France self-training round 2 (E036) + French candidate rescue | 0.99154 | 0.987876 (flat; not final) |
 
 - **Common false positives (wrong merges):** different businesses with the same or near-identical name (reused names,
   chain branches) when the address is empty or generic. **French records** before normalisation v2: "2 R PAUL
@@ -255,10 +264,10 @@ organisers' TSVs (~24 h, ~20 GPU-hours on one RTX 5080 16 GB, 64 GB RAM) and run
 | E029 | e5-large continued on francized train pairs (hand-written generic-word dictionary) | francized-dev AUC 0.911 -> 0.992 | base for E030 |
 | E030 | self-training of E029 on 350k confident test pseudo-labels (France, US, India) | French uncertain pairs/S1 0.331 (lowest) | yes |
 | E032/E033 | stricter candidate filter (3.83/S1) refits of E023b-ST / E030 | dev 0.99095 / 0.99099; LB 0.987692 | yes |
-| E034 | + listwise owner model OW04 (owner probability + margin) | dev **0.99154** (+0.00055), OOF 0.99142; LB **0.98793** | yes |
+| E034 | + listwise owner model OW04 (owner probability + margin) | dev **0.99154** (+0.00055), OOF 0.99142; LB **0.98793** | **final** |
 | E035 | + a second e5-large pair cross-encoder | dev 0.99153 (flat) | no |
-| E036 | France self-training round 2 (teacher E034, 450k French pseudo-labels) | French uncertain pairs/S1 0.332 -> 0.288; US/India unchanged | yes |
-| E037 | + French candidate rescue (France-adapted CE >= 0.5 at the filter) | +1,527 French matches; nothing else changes | **final** |
+| E036 | France self-training round 2 (teacher E034, 450k French pseudo-labels) | French uncertain pairs/S1 0.332 -> 0.288; US/India unchanged | no (see E037) |
+| E037 | + French candidate rescue (France-adapted CE >= 0.5 at the filter) | +1,527 French matches; LB 0.987876 (flat) | no |
 
 #### B.2 Stage-2 features (80)
 - **Stage 1 (32 + probability):** `cos_{name,addr,both,both_ft}`; `name_{ratio,tset,tsort,partial,jw,full_tset,exact_core,len_l,len_r}`;
@@ -332,7 +341,8 @@ Normalisation uses small hand-written generic dictionaries (legal-form words, st
 | sub-15 | E023b-ST, France 0.85 | 0.99100 / 0.99096 | not uploaded (team slots) |
 | sub-16 | E033: E030 self-trained e5-large, 3.98 cands/S1, France 0.85 | 0.99099 / 0.99100 | 0.987692 |
 | sub-17 | E034: E033 + owner model OW04 | 0.99154 / 0.99142 | 0.98793 |
-| sub-18 | **E037 final**: E034 + France self-training round 2 + French candidate rescue | 0.99154 / 0.99142 | final upload |
+| sub-18 | E037: E034 + France self-training round 2 + French candidate rescue | 0.99154 / 0.99142 | 0.987876 |
+| sub-19 | **E034 final** (re-upload of sub-17's file) | 0.99154 / 0.99142 | 0.98793 |
 
 ---
 
