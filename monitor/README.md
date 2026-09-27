@@ -61,7 +61,7 @@ Put in `.env` (gitignored; the URL is never printed or logged):
 ```
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 NTFY_TOPIC_URL=https://ntfy.sh/<long-random-topic>   # optional fallback (phone push)
-OWNER=team                                           # optional footer tag
+OWNER=shaunak                                        # optional footer tag
 ```
 ntfy is used when Discord fails/unset, and additionally for every critical alert.
 ```bash
