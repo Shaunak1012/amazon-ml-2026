@@ -3,6 +3,16 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-27 13:05 IST: FINAL v1 built (clean, 4.54 cand/S1, organiser validator PASS)
+- CE03 (e5-large CE, GB10): alone +0.00006 dev; with OW03 0.99134. As a candidate filter (p >= 0.05 OR ce3 >= 0.10):
+  4.13 cand/S1 on dev at 0.99131 (-0.00003), recall 0.9908.
+- Self-trained ce_score_2 (E020) dropped from features (team decision): 0.99131 -> 0.99117 normal dev.
+- Test-density training (19% S1 drop): +0.00034 on test-like dev (FB 0.99094 vs FA_e 0.99060) -> kept.
+- **FINAL v1** = E019 train frame + E020 test frame minus ce_score_2, + OW03 + CE03 features, cascade filter applied to
+  train and test with population features recomputed, density training, one stage-2 run -> both TSVs.
+  Test: 4.54 cand/S1 (US 4.33, India 4.37, France 5.56), 3.37 matches/S1, 5.8% empty. Organiser validator PASS.
+  s3://.../shreyas/artifacts/final_shreyas/. Seed-averaging: no gain. OW04 (e5-large owner model) running for a v2.
+
 ## 2026-09-27 01:00 IST: OW03 (GPU owner model, e5-base) = +0.00026 dev -> 0.99122; clean filter sweep
 - Team decision (26 Sep 22:40): drop self-training; filter before features. E020's ce_score_2 is self-trained on test,
   so the clean candidate rule uses stage-1 p OR the E008 e5-small CE (ce_score): p>=0.02|ce>=0.02 -> 6.25 cand/S1,
