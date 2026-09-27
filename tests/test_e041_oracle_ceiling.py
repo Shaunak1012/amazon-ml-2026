@@ -1,4 +1,4 @@
-from e041_oracle_ceiling import (
+from scripts.e041_oracle_ceiling import (
     analyze,
     oracle_f05,
     summarize,
@@ -7,9 +7,7 @@ from e041_oracle_ceiling import (
 
 def test_oracle_formula():
     assert oracle_f05(0.0) == 0.0
-    assert abs(
-        oracle_f05(1.0) - 1.0
-    ) < 1e-12
+    assert abs(oracle_f05(1.0) - 1.0) < 1e-12
 
     expected = (
         1.25 * (2 / 3)
@@ -58,29 +56,14 @@ def test_true_empty_gets_perfect_oracle():
         == "S1-match"
     ].iloc[0]
 
-    assert (
-        empty.is_true_empty
-        is True
-    )
-
-    assert (
-        empty.oracle_f05
-        == 1.0
-    )
+    assert bool(empty.is_true_empty)
+    assert empty.oracle_f05 == 1.0
 
     assert matched.n_hit == 2
     assert matched.n_true == 3
-    assert (
-        matched.fully_missed
-        is False
-    )
+    assert not bool(matched.fully_missed)
 
     summary = summarize(df)
 
-    assert summary[
-        "n_dev_s1"
-    ] == 2
-
-    assert summary[
-        "n_true_empty"
-    ] == 1
+    assert summary["n_dev_s1"] == 2
+    assert summary["n_true_empty"] == 1
