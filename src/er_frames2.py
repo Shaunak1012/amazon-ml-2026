@@ -120,6 +120,7 @@ def main() -> None:
     ap.add_argument("--cand-ce-col", default="", help="OR-rule: also keep rows whose CE column (e.g. ce_score_2) >= --cand-ce-min")
     ap.add_argument("--cand-ce-min", type=float, default=1.1)
     ap.add_argument("--extra-feats", nargs="*", default=[], help="dirs with <split>_*.parquet extra pair features")
+    ap.add_argument("--drop-cols", nargs="*", default=[], help="feature columns to exclude, e.g. ce_score_2 (self-trained on test in E020)")
     ap.add_argument("--lr", type=float, default=0.1)
     ap.add_argument("--rounds", type=int, default=1000)
     ap.add_argument("--lgb-params", default="")
@@ -131,7 +132,7 @@ def main() -> None:
     rd.mkdir(parents=True, exist_ok=True)
 
     folds = pd.read_parquet(cache_dir() / "folds_s1_k5.parquet").set_index("s1_id")
-    X = add_extra(pd.read_parquet(Path(a.frames) / "train_frame.parquet"), a.extra_feats, "train")
+    X = add_extra(pd.read_parquet(Path(a.frames) / "train_frame.parquet"), a.extra_feats, "train").drop(columns=a.drop_cols, errors="ignore")
     frame_ids = pd.Index(X.s1_id.unique())            # every fit/dev S1, fixed before any pruning
     pruned = a.cand_topk < 15 or a.cand_min_prob > 0
     allp = None
@@ -216,7 +217,7 @@ def main() -> None:
     if not a.out:
         return
     from src.er_submission import write_outputs
-    Xt = add_extra(pd.read_parquet(a.test_frame or Path(a.frames) / "test_frame.parquet"), a.extra_feats, "test")
+    Xt = add_extra(pd.read_parquet(a.test_frame or Path(a.frames) / "test_frame.parquet"), a.extra_feats, "test").drop(columns=a.drop_cols, errors="ignore")
     if pruned:
         # the SAME candidate rule on test; population features recomputed on the pruned test set, so
         # candidate_pairs.tsv is exactly what the final model scores (organiser rule, 26 Sep update)
