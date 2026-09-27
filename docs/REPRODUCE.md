@@ -1,6 +1,6 @@
 # Business Entity Resolution: how to reproduce
 
-Team **SHSHSHSH** (Shaunak A. Rai, Shaswat Solanki, Shivam Anand, Shreyas Sreenivas), Amazon ML Challenge 2026.
+Team **SHSHSHSH**, Amazon ML Challenge 2026.
 This file is `code/business_entity_resolution/README.md` in the submission zip. It regenerates
 `output/matching_results.tsv` and `output/candidate_pairs.tsv` from the organisers' train/test files, using only
 the code in this folder, the pinned packages in `requirements.txt` and three open base models (MIT / Apache-2.0).

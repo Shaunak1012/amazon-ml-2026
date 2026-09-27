@@ -127,7 +127,14 @@ def main() -> int:
         for f, b in blobs.items():
             z.writestr(f"{CODE_PREFIX}/{f}", b)
         z.writestr(f"{CODE_PREFIX}/README.md", git_bytes(a.ref, a.readme))
-        z.write(a.doc, doc_name)
+        # the zip root holds exactly the spec's three items: the diagram the doc embeds goes inside the code folder,
+        # and the doc's relative image link is rewritten to that location
+        arch = Path(a.doc).parent / "architecture.png"
+        doc_bytes = Path(a.doc).read_bytes()
+        if arch.exists():
+            z.write(arch, f"{CODE_PREFIX}/docs/architecture.png")
+            doc_bytes = doc_bytes.replace(b"](architecture.png)", f"]({CODE_PREFIX}/docs/architecture.png)".encode())
+        z.writestr(doc_name, doc_bytes)
         info = [f"ref: {a.ref}", f"commit: {git('rev-parse', f'{a.ref}^{{commit}}')}",
                 f"built: {datetime.now(timezone.utc).isoformat()}"]
         z.writestr(f"{CODE_PREFIX}/BUILD_INFO.txt", "\n".join(info) + "\n")

@@ -22,7 +22,7 @@
 #   FINAL_VARIANT=unseen       base = global decision threshold for every country; unseen = the stricter threshold
 #                              (0.85) for S1 countries absent from train, written by the SAME stage-2 run
 #                              (default unseen = the final submission)
-#   FINAL_STACK=e030           e023b_st | e029 | e030: CE stack of the final stage 2 (steps 12c-12h)
+#   FINAL_STACK=e034           e023b_st | e029 | e030 | e034 | e037: CE stack of the final stage 2 (steps 12c-12j)
 #
 # Most steps are resumable (embeddings, model training checkpoints, scoring shards, stage-1 chunks): after a crash,
 # re-running this script skips finished work where the step supports it.
@@ -34,7 +34,7 @@ PY="${PY:-python}"
 E008_FAITHFUL="${E008_FAITHFUL:-1}"
 LLM_BAND="${LLM_BAND:-full}"
 FINAL_VARIANT="${FINAL_VARIANT:-unseen}"
-FINAL_STACK="${FINAL_STACK:-e030}"
+FINAL_STACK="${FINAL_STACK:-e034}"
 DATA="${DATA_DIR:-data}"
 export PYTHONUNBUFFERED=1
 
@@ -264,7 +264,7 @@ if [ "$FINAL_STACK" != e023b_st ]; then
   "$PY" scripts/francize_ce.py train
   "$PY" scripts/francize_ce.py score
 fi
-if [ "$FINAL_STACK" = e030 ]; then
+if [ "$FINAL_STACK" = e030 ] || [ "$FINAL_STACK" = e034 ] || [ "$FINAL_STACK" = e037 ]; then
   step "12g. pseudo-label source 2: E023b-ST stage 2 (test probabilities for E030)"
   "$PY" -m src.er_fullpass stage2 --exp E015 --views name addr both both_ft \
       --ce-dir runs/E015-ce runs/E020-ce "$LLM_CE" --fit-folds 0 --tag E023b_st \
@@ -280,7 +280,39 @@ if [ "$FINAL_STACK" = e030 ]; then
   "$PY" -m src.er_selftrain score --model runs/E030-ce-st/model --country US India --uncertain 0.02 0.98 --only-scored \
       --base-ce runs/E030-ce-fr --out runs/E030-ce --batch 256
 fi
+if [ "$FINAL_STACK" = e034 ] || [ "$FINAL_STACK" = e037 ]; then
+  # 12i. OW04: listwise owner model (multilingual-e5-large, MIT). Reads a contested pool record with up to 6 competing
+  #      S1s and predicts which one owns it. Trained on train groups with no fold-0 S1 involved (fold 0 stays clean).
+  #      out: runs/OW04p (owner probability), runs/OW04m (owner margin)   time: prep ~10 min, train ~3 h, score ~1 h GPU
+  step "12i. OW04 owner model -> runs/OW04p, runs/OW04m"
+  "$PY" scripts/owner_pairs.py --out runs/OW04
+  "$PY" -m src.er_owner prep --pairs runs/OW04/pairs.parquet --frame runs/OW04/fold0.parquet       --test-frame runs/OW04/test.parquet --out runs/OW04
+  "$PY" -m src.er_owner train --dir runs/OW04 --model intfloat/multilingual-e5-large --epochs 2 --batch 32 --lr 2e-5       --n 200000 --bf16
+  for split in train test; do "$PY" -m src.er_owner score --dir runs/OW04 --split $split --batch 256 --bf16; done
+  "$PY" scripts/owner_to_ce.py --owner-dir runs/OW04 --col own_p --out runs/OW04p
+  "$PY" scripts/owner_to_ce.py --owner-dir runs/OW04 --col own_margin --out runs/OW04m
+fi
+RESCUE=""
+if [ "$FINAL_STACK" = e037 ]; then
+  # 12j. E034 stage 2 (the teacher), then E036: France-only self-training round 2 of the E030 CE on 450k confident French
+  #      pseudo-labels from E034; France candidate rows re-scored. E037 = E034 inputs with runs/E030-ce -> runs/E036-ce plus
+  #      the unseen-country candidate rescue (keep French pairs the France-adapted CE scores >= 0.5).
+  step "12j. E034 teacher run, E036 France self-training round 2 -> runs/E036-ce"
+  "$PY" -m src.er_fullpass stage2 --exp E015 --views name addr both both_ft \
+      --ce-dir runs/E015-ce runs/E020-ce "$LLM_CE" runs/E030-ce runs/OW04p runs/OW04m --fit-folds 0 --tag E034_ow04 \
+      --comp-cols cos_name name_ratio name_jw name_full_tset name_tsort --norm2 --comp-keep 0.78 \
+      --prune-eps 0.5 --prune-ce-dir runs/E016-ce --prune-ce 0.05 --out runs/E034-sub
+  mkdir -p runs/E015/sub_E034_ow04 && cp runs/E015/test_probs_stage2.parquet runs/E015/sub_E034_ow04/
+  cp runs/E027-ce-large/model/train_pairs.parquet runs/E030-ce-st/model/
+  "$PY" -m src.er_selftrain train --probs runs/E015/sub_E034_ow04/test_probs_stage2.parquet --country France \
+      --base runs/E030-ce-st/model --out runs/E036f-ce-st/model --n-pos 200000 --n-neg 250000 --batch 32 --lr 1e-5
+  "$PY" -m src.er_selftrain score --model runs/E036f-ce-st/model --country France --only-scored --base-ce runs/E030-ce \
+      --out runs/E036-ce --batch 256
+  RESCUE="--prune-unseen-ce-dir runs/E036-ce --prune-unseen-ce 0.5"
+fi
 case "$FINAL_STACK" in
+  e037) FINAL_CE="runs/E015-ce runs/E020-ce $LLM_CE runs/E036-ce runs/OW04p runs/OW04m" ;;
+  e034) FINAL_CE="runs/E015-ce runs/E020-ce $LLM_CE runs/E030-ce runs/OW04p runs/OW04m" ;;
   e030) FINAL_CE="runs/E015-ce runs/E020-ce $LLM_CE runs/E030-ce" ;;
   e029) FINAL_CE="runs/E015-ce runs/E020-ce $LLM_CE runs/E029-ce" ;;
   *)    FINAL_CE="runs/E015-ce runs/E020-ce $LLM_CE" ;;
@@ -304,7 +336,7 @@ step "13. final stage 2 ($FINAL_STACK) -> output/"
 "$PY" -m src.er_fullpass stage2 --exp E015 --views name addr both both_ft \
     --ce-dir $FINAL_CE --fit-folds 0 --tag FINAL \
     --comp-cols cos_name name_ratio name_jw name_full_tset name_tsort --norm2 --comp-keep 0.78 \
-    --prune-eps 0.5 --prune-ce-dir runs/E016-ce --prune-ce 0.05 --unseen-threshold 0.85 \
+    --prune-eps 0.5 --prune-ce-dir runs/E016-ce --prune-ce 0.05 $RESCUE --unseen-threshold 0.85 \
     --out output
 if [ "$FINAL_VARIANT" = unseen ]; then
   cp output_unseen/matching_results.tsv output_unseen/candidate_pairs.tsv output/
