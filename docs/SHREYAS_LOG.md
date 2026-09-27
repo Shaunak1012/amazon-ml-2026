@@ -3,6 +3,11 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-27 15:00 IST: FINAL v2 (OW04) = v1 within noise
+Our final regime, v2 (OW04 e5-large owner) vs v1 (OW03): normal dev 0.99125 vs 0.99117 (+0.00008), test-like dev
+0.99098 vs 0.99094 (+0.00004). Both within noise; OW04 ahead in all 4 paired comparisons today (+0.00004..+0.00011,
+India-driven). v2 built and organiser-validated (s3://.../shreyas/artifacts/final_shreyas_v2/). Either is defensible.
+
 ## 2026-09-27 14:40 IST: paired comparisons in Shaunak's E023b regime
 Regime copied (read-only from origin/shaunak, no merge) into src/er_frames2.py: `density_mask` (all fit + dev S1s
 kept + random 0.78 of the other train S1s as competitors, seed 11, draws over the chunk-order S1 list; competition
