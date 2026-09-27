@@ -16,13 +16,16 @@ Identical dev rows in every arm (100,000 dev S1; 4.706 cand/S1; recall 0.99628 =
 | (b) + OW03 owner features (e5-base, GPU) | 0.99107 | +0.00083 | 0.99037 | 0.99213 |
 | (c) + CE03 (e5-large cross-encoder, GPU) | 0.99057 | +0.00033 | 0.99004 | 0.99139 |
 | (d) + OW03 + CE03 | 0.99126 | +0.00102 | 0.99068 | 0.99215 |
+| (e) + OW04 owner features (e5-large, GPU) | 0.99115 | +0.00091 | 0.99040 | 0.99230 |
+| (f) + OW04 + CE03 | **0.99137** | **+0.00113** | 0.99060 | 0.99253 |
 
 - Baseline sits below E023b-full (0.99100) because our frames lack his norm2 features and E022 reranker score
   (together ~+0.00076 in his runs: E025 0.99039 -> E023b 0.99100 with the filter).
 - The owner signal is worth ~3x more at test-like density (+0.00083) than at train density (+0.00026).
 - If roughly additive: E023b + OW03 + CE03 ~ 0.9920 dev (medium confidence). Features ready for him as parquet keyed by
   (s1_id, cand_id): OW03 train/test_owner, CE03 train/test ce3 (fold-0 + test, trained on folds 1-4 only).
-- OW04 (e5-large owner model) arms (e)/(f) computed the same way: pending.
+- OW04 vs OW03 (same rows): +0.00008 alone, +0.00011 with CE03; India +0.00038, US -0.00008 in (f) vs (d).
+  Consistent direction but at the edge of noise. Best arm: (f) OW04 + CE03 = 0.99137 (+0.00113 over base).
 
 ## 2026-09-27 13:05 IST: FINAL v1 built (clean, 4.54 cand/S1, organiser validator PASS)
 - CE03 (e5-large CE, GB10): alone +0.00006 dev; with OW03 0.99134. As a candidate filter (p >= 0.05 OR ce3 >= 0.10):
