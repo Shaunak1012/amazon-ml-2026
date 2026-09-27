@@ -23,6 +23,9 @@ ap.add_argument("--final", default="E033")
 ap.add_argument("--dev", default="0.99099", help="dev macro F0.5 of the final model (test-like density)")
 ap.add_argument("--owner", action="store_true", help="include the OW04 listwise owner model (E034)")
 ap.add_argument("--out", default="docs/architecture", help="output path without extension")
+ap.add_argument("--france-unc", default="0.331", help="final French uncertain pairs per S1")
+ap.add_argument("--st2", action="store_true", help="second France self-training round (E036)")
+ap.add_argument("--rescue", action="store_true", help="unseen-country candidate rescue (E037)")
 A = ap.parse_args()
 
 fig, ax = plt.subplots(figsize=(14, 16.8 if A.owner else 16))
@@ -79,7 +82,9 @@ STEPS = [
          "6 competing S1s and predicts which one owns it -> owner probability + owner margin"] if A.owner else []),
      None),
     ("out", "C. Candidate filter  ->  candidate_pairs.tsv",
-     ["stage-1 prob >= 0.5  OR  cross-encoder (E016) >= 0.05: exactly the matcher's input",
+     ["stage-1 prob >= 0.5  OR  cross-encoder (E016) >= 0.05: exactly the matcher's input"]
+     + (["France: also kept if the France-adapted e5-large CE >= 0.5 (rescue)"] if A.rescue else []) +
+     [
       "Test: 3.98 / S1 (US 3.76, India 3.86, France 4.92), 6.9M pairs"],
      "3.83 / S1 (dev)   ·   pair recall 0.991   ·   reduction ratio 99.99996%"),
     ("model", "Stage-2 LightGBM matcher (fusion)",
@@ -108,8 +113,9 @@ ax.set_ylim(bottom - 12, 124)
 SX, SW = 88, 23
 for idx, title, lines in ((3, "France (unseen in train)",
                            ["Francized synthetic pairs:", "hand-written word list", "(Street->Rue, LLC->SARL, ...)",
-                            "Self-training on confident", "test predictions (allowed)", "French uncertain pairs/S1:",
-                            "0.447 -> 0.331", "Stricter threshold 0.85"]),
+                            "Self-training on confident", "test predictions (allowed)"]
+                           + (["Round 2: teacher = owner-model", "run, 450k French pseudo-labels"] if A.st2 else [])
+                           + ["French uncertain pairs/S1:", f"0.447 -> {A.france_unc}", "Stricter threshold 0.85"]),
                           (5, "Validation",
                            ["Dev: 100k fold-0 S1s,", "scored at test-like density", "Every learned model: folds 1-4",
                             "Public-LB probes for France", "(threshold 0.55 / 0.75 / 0.90)",
