@@ -3,6 +3,17 @@
 Newest first. Each teammate-sync entry: what they tried, what worked, what failed, and what this branch does
 differently because of it.
 
+## 2026-09-27 16:50 IST: team sync + RF01 (train stage 2 on the dev S1s too?) queued
+- Shaunak: sub-16 = E033 LB **0.987692**; E034 = E033 + our OW04 owner features: dev **0.99154** (+0.00055 vs E033),
+  OOF 0.99142, sub-17 LB **0.98793** (new best, +0.00024). E035 (E034 + CE03) chained, gated vs E034.
+- Found while reading his stage 2: test is predicted by the 4 OOF models of the 300k fit S1s (each ~225k); the 100k
+  dev S1s never train. RF01 measures whether adding them helps or hurts, candidate rows unchanged
+  (`src/er_refit.py`, `er_frames2 --refit-check`, job `scripts/sm/jobs/rf01_refit.sh`): dev split into fixed halves,
+  train with the other half added, score this half paired with the base arm; 2 partition seeds (noise floor); OOF
+  ensemble ("add") and one full refit at fixed rounds ("full", x1.00/x1.25); calibration, threshold transfer and
+  test decision drift per country (France at 0.85) as detriment checks. Two regimes: E034-like (E023b density,
+  3.83 filter, OW04) and our final-v2. Results below when in.
+
 ## 2026-09-27 15:00 IST: FINAL v2 (OW04) = v1 within noise
 Our final regime, v2 (OW04 e5-large owner) vs v1 (OW03): normal dev 0.99125 vs 0.99117 (+0.00008), test-like dev
 0.99098 vs 0.99094 (+0.00004). Both within noise; OW04 ahead in all 4 paired comparisons today (+0.00004..+0.00011,
