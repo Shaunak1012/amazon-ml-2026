@@ -1,6 +1,7 @@
 # CLAUDE.md — Amazon ML Challenge 2026
 
 ## Shreyas branch rules (this clone; read first, they override anything below)
+- **New session? Read `docs/SHREYAS_HANDOFF.md` first** (full state, infra, results, next steps), then `docs/SHREYAS_LOG.md`.
 - **Write only to `shreyas`.** Commit on `shreyas` and push with `git push origin shreyas`. Never commit to or push
   `main`, `shaunak`, `solanki`, `shivam`, or tags. Enforced by `scripts/githooks/pre-push`
   (`git config core.hooksPath scripts/githooks`); never bypass it.
