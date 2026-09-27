@@ -23,6 +23,9 @@ is out-of-sample on the S1s used to fit and validate the final model. For France
 we adapt the cross-encoders with test-time self-training on our own confident predictions (allowed by the organisers)
 and with synthetic French-style training pairs built from the provided train records.
 
+
+![Final pipeline (E033)](architecture.png)
+
 ---
 
 ## 2. Methodology

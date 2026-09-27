@@ -128,6 +128,9 @@ def main() -> int:
             z.writestr(f"{CODE_PREFIX}/{f}", b)
         z.writestr(f"{CODE_PREFIX}/README.md", git_bytes(a.ref, a.readme))
         z.write(a.doc, doc_name)
+        arch = Path(a.doc).parent / "architecture.png"     # pipeline diagram the doc embeds (same relative path)
+        if arch.exists():
+            z.write(arch, "architecture.png")
         info = [f"ref: {a.ref}", f"commit: {git('rev-parse', f'{a.ref}^{{commit}}')}",
                 f"built: {datetime.now(timezone.utc).isoformat()}"]
         z.writestr(f"{CODE_PREFIX}/BUILD_INFO.txt", "\n".join(info) + "\n")

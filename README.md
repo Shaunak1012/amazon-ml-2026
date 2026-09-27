@@ -14,6 +14,8 @@ per record). France is handled by test-time self-training and francized syntheti
 from the provided data. Details: [docs/Documentation_template.md](docs/Documentation_template.md); rebuild both TSVs
 with [scripts/reproduce.sh](scripts/reproduce.sh) ([docs/REPRODUCE.md](docs/REPRODUCE.md)).
 
+![Final pipeline (E033)](docs/architecture.png)
+
 ## Current best
 | | Dev F0.5 (test-like density) | Public LB | Candidates / S1 (test) | Experiment | Tag |
 |---|---|---|---|---|---|
