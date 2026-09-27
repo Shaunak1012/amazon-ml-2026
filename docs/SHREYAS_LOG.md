@@ -24,6 +24,9 @@ differently because of it.
   empty share and the dev-optimal threshold unchanged; early stopping lands at ~100 rounds (lr 0.1) in every arm, so
   stage 2 is data-saturated at 300k S1. Side result: two partition seeds of the SAME model differ by up to 0.00010
   on 50k dev S1, so a +0.0001 dev gate (E035) is at the noise level.
+- RF01 test drift (final-v2 regime, dev folded into fit, vs base seed 0): "add" changes 1.87% of French S1 decisions
+  (US 0.40%, India 0.31%) vs 1.64% / 0.38% / 0.30% for a mere partition-seed change; matches/S1 within 0.05%.
+  Full refit moves France more (2.68%). Consistent with the dev verdict: harmless, no gain.
 
 ## 2026-09-27 15:00 IST: FINAL v2 (OW04) = v1 within noise
 Our final regime, v2 (OW04 e5-large owner) vs v1 (OW03): normal dev 0.99125 vs 0.99117 (+0.00008), test-like dev
