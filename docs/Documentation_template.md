@@ -73,9 +73,9 @@ remaining error: look-alike names with empty addresses.
   bi-encoder** (in-batch InfoNCE, same-country batches, 1.5M train pairs of folds 1-4) on name + address.
   The union of all hits is the retrieved set. A stage-1 LightGBM on 32 cheap features (embedding cosines, rapidfuzz
   name/address similarities, number/postcode agreement, rank context) then filters it.
-- **Candidate pairs generated:** 4.71 per S1 on dev; {{FINAL: test candidates per S1}} per S1 and
-  {{FINAL: total test candidate pairs}} pairs on test. The reduction ratio against all S1 × (S2 ∪ S3) pairs is about
-  99.9999% ({{FINAL: exact test reduction ratio}}).
+- **Candidate pairs generated:** 4.71 per S1 on dev; 4.743 per S1 and
+  8,217,926 pairs on test. The reduction ratio against all S1 × (S2 ∪ S3) pairs is about
+  99.9999% (99.999952%).
 
 | Stage (dev, 100k S1) | Rule | Candidates / S1 | Pair recall |
 |---|---|---:|---:|
@@ -120,10 +120,10 @@ with cross-encoder B in (0.1, 0.9): 155k fold-0 and 727k test pairs. (5) Stage-2
 early stopping) on all features.  
 **Threshold selection method:** on stage-2 OOF predictions only, we compare (a) one global threshold, grid-tuned
 for macro F0.5, and (b) a per-S1 expected-F0.5-optimal subset. Both enforce **one S1 per record** (each S2/S3 record
-goes to its highest-probability S1). Recent runs chose (a) at 0.75 ({{FINAL: E023 rule and threshold}}). An empty
+goes to its highest-probability S1). Recent runs chose (a) at 0.75 (global threshold 0.75 with one-S1-per-record assignment). An empty
 list is predicted whenever nothing passes, which earns the singleton credit. The unseen-country variant uses
 threshold 0.85 for S1s whose country string never occurs in train, from the same run
-({{FINAL: whether the final upload is the base or the unseen variant}}).
+(the final upload is the unseen-country variant, threshold 0.85; public-LB probes on the same probabilities gave 0.985959 / 0.98631 / 0.986359 at 0.55 / 0.75 / 0.90, so loosening hurts and tightening is flat, and 0.85 is the plateau centre).
 
 ---
 
@@ -279,8 +279,11 @@ Normalisation uses small hand-written generic dictionaries (legal-form words, st
 | sub-08 | E015 bi-encoder view | 0.9898 / 0.9896 | 0.983322 |
 | sub-09 | E016 cross-encoder B | 0.9905 / 0.9901 | 0.984727 |
 | sub-10 | E020 (E017 + self-training, now dropped) | 0.9910 / 0.9907 | 0.985645 |
-| {{FINAL: sub-11}} | E023 final build | {{FINAL}} | {{FINAL}} |
-| {{FINAL: sub-12}} | E023 unseen-country variant (same run) | {{FINAL}} | {{FINAL}} |
+| sub-11 | E017 (sub-10 without self-training; A/B) | 0.9910 / 0.9907 | 0.985144 |
+| sub-12 | E023b-full (reranker full band, density, norm2, 4.74/S1 filter) | 0.99100 / 0.99096 | 0.98631 |
+| sub-13 | sub-12 probabilities, France threshold 0.55 | same | 0.985959 |
+| sub-14 | sub-12 probabilities, France threshold 0.90 | same | 0.986359 |
+| {{FINAL: final tag}} | {{FINAL: final model}} | {{FINAL}} | {{FINAL}} |
 
 ---
 
