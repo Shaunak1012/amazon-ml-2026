@@ -124,18 +124,24 @@ floor is our own 3.37 predicted matches per S1 (every matched ID must be a candi
   expansion (St/Street, R/Rue). House-number Jaccard, common count and first-number equality. Postcode agreement.
   Address-view cosine.
 - **Other:** name + address cosines (off-the-shelf and fine-tuned); retrieval ranks; source flag; rank and gap to the
-  best within the S1's and within the record's lists; stage-1 probability. **Two cross-encoder scores** and the
+  best within the S1's and within the record's lists; stage-1 probability. **Three cross-encoder scores** and the
   **LLM reranker P(Yes)** (only in the uncertain band, missing elsewhere). **Cluster features:** similarity to the
   S1's confident candidates, and probability aggregates. **Competition features:** the candidate record's best value
   with any *other* S1 and our margin over it, for 6 name similarities and the stage-1 probability. They are computed
-  over the full population at test-like density.
+  over the full population at test-like density. **Owner features** (E034): the listwise owner model's probability that
+  this S1 owns the record, and its margin over the best competing S1 (only for contested records, missing elsewhere).
 
 **Model type:** a cascade. (1) Stage-1 LightGBM. (2) Cross-encoder A: multilingual-e5-small as a sequence-pair
 classifier, 2M pairs, 40% positive, hard negatives chosen by stage-1 probability. (3) Cross-encoder B:
 multilingual-e5-base, 3M pairs. (4) **Qwen3-4B with LoRA** (r 16) trained as a Yes/No classifier on 40k prompts. Each
 prompt shows the S1, the candidate record and up to 3 other S1s that also retrieved the record. It scores only pairs
-with cross-encoder B in (0.1, 0.9): 155k fold-0 and 727k test pairs. (5) Stage-2 LightGBM (127 leaves, lr 0.1,
-early stopping) on all features.  
+with cross-encoder B in (0.1, 0.9): 155k fold-0 and 727k test pairs. (5) Cross-encoder C: multilingual-e5-large, adapted
+to the unseen country with francized train pairs and self-training on confident test predictions (E027, E029, E030).
+(6) **Listwise owner model (OW04)**, multilingual-e5-large: for a pool record retrieved by several S1s it reads the
+record and up to 6 competing S1s in one sequence and predicts which one owns it (softmax over slots + "none"). Pair
+models never see the competitors, and missed or wrong owners in name collisions are our dominant error. It is trained
+only on groups with no fold-0 S1 involved, so every fold-0 row is scored out-of-sample (+0.00055 dev, +0.00024 public
+LB). (7) Stage-2 LightGBM (127 leaves, lr 0.1, early stopping) on all features.  
 **Threshold selection method:** on stage-2 OOF predictions only, we compare (a) one global threshold, grid-tuned
 for macro F0.5, and (b) a per-S1 expected-F0.5-optimal subset. Both enforce **one S1 per record** (each S2/S3 record
 goes to its highest-probability S1). Recent runs chose (a) at 0.75 (global threshold 0.75 with one-S1-per-record assignment). An empty
@@ -191,6 +197,8 @@ organisers) was the strongest lever for France: the self-trained e5-large cross-
 per S1 from 0.447 to 0.331. Dev is bounded near 0.991 by empty-address records whose name is shared by several S1s
 (oracle +0.0053): nothing in such a record identifies its owner, and we did not use ID or row-order signals.
 
+
+**Production path.** At Amazon scale we would keep the cascade shape (sharded ANN retrieval, a cheap filter to ~4 candidates per entity, one matcher) but distil the three cross-encoders, the LLM reranker and the owner model into one small cross-encoder, compute competition features per blocking shard, calibrate, and route the ambiguous band (~0.5% of pairs: empty-address records shared by several same-name entities) to human review. A new market gets synthetic pairs, a small labelled sample and self-training, a manual audit, and a drift guard on every model update (docs/FRANCE_QA.md).
 ---
 
 ## Appendix
@@ -242,7 +250,9 @@ organisers' TSVs (~24 h, ~20 GPU-hours on one RTX 5080 16 GB, 64 GB RAM) and run
 | E028 | importance-weighted stage 2 for the unseen country (domain AUC 0.919) | no gain | no |
 | E029 | e5-large continued on francized train pairs (hand-written generic-word dictionary) | francized-dev AUC 0.911 -> 0.992 | base for E030 |
 | E030 | self-training of E029 on 350k confident test pseudo-labels (France, US, India) | French uncertain pairs/S1 0.331 (lowest) | yes |
-| E032/E033 | stricter candidate filter (3.83/S1) refits of E023b-ST / E030 | dev 0.99095 / **0.99099** | E033 = final |
+| E032/E033 | stricter candidate filter (3.83/S1) refits of E023b-ST / E030 | dev 0.99095 / 0.99099; LB 0.987692 | yes |
+| E034 | + listwise owner model OW04 (owner probability + margin) | dev **0.99154** (+0.00055), OOF 0.99142; LB **0.98793** | yes |
+| E035 | + a second e5-large pair cross-encoder | dev 0.99153 (flat) | no |
 
 #### B.2 Stage-2 features (80)
 - **Stage 1 (32 + probability):** `cos_{name,addr,both,both_ft}`; `name_{ratio,tset,tsort,partial,jw,full_tset,exact_core,len_l,len_r}`;
