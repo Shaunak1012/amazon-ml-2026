@@ -314,6 +314,7 @@ organisers' TSVs (~24 h, ~20 GPU-hours on one RTX 5080 16 GB, 64 GB RAM) and run
 |---|---|---|---|
 | intfloat/multilingual-e5-small | MIT | 118M | retrieval embeddings; bi-encoder and cross-encoder A (fine-tuned on train only) |
 | intfloat/multilingual-e5-base | MIT | 278M | cross-encoder B (fine-tuned on train only) |
+| intfloat/multilingual-e5-large | MIT | 560M | cross-encoder C (E027/E029/E030) and owner model OW04 (fine-tuned on train only; self-training on test inputs, allowed by the organisers) |
 | Qwen/Qwen3-4B | Apache-2.0 | 4.0B | LoRA reranker (adapters trained on train only) |
 | LightGBM | MIT | n/a | stage-1 and stage-2 classifiers |
 
